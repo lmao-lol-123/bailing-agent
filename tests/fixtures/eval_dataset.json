@@ -1,0 +1,8 @@
+[
+  {
+    "question": "How should the API stream answers?",
+    "expected_source_name": "guide.md",
+    "expected_snippet": "FastAPI streams answers using SSE.",
+    "allow_uncertain": false
+  }
+]

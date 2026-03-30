@@ -1,0 +1,2 @@
+"""Engineering RAG Assistant package."""
+

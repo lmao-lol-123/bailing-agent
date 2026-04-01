@@ -2,20 +2,29 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from src.api.schemas import AskRequest, DocumentListResponse, HealthResponse, IngestManyResponse, IngestURLRequest
 from src.core.dependencies import AppContainer, get_container
 
 
 app = FastAPI(title="Engineering RAG Assistant")
+STATIC_DIRECTORY = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC_DIRECTORY), name="static")
 
 
 def format_sse(event: str, data: dict) -> str:
     payload = json.dumps(data, ensure_ascii=False)
     return f"event: {event}\ndata: {payload}\n\n"
+
+
+@app.get("/", include_in_schema=False)
+def frontend() -> FileResponse:
+    return FileResponse(STATIC_DIRECTORY / "index.html")
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -60,3 +69,4 @@ async def ask_stream(
             yield format_sse(event["event"], event["data"])
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+

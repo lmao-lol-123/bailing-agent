@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Engineering RAG Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Engineering RAG Assistant</p>
+        <h1>工程文档问答工作台</h1>
+        <p class="subtitle">面向本地开发的轻量级 RAG 前端，覆盖导入、文档概览、流式问答与来源追踪。</p>
+      </div>
+      <div class="hero-meta">
+        <div class="meta-card">
+          <span class="meta-label">服务状态</span>
+          <strong id="health-status">检查中</strong>
+        </div>
+        <div class="meta-card">
+          <span class="meta-label">已索引文档</span>
+          <strong id="document-count">0</strong>
+        </div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="panel sidebar">
+        <section>
+          <div class="section-title">
+            <h2>导入文档</h2>
+            <span>支持文件与 URL</span>
+          </div>
+
+          <form id="upload-form" class="stack">
+            <label class="field">
+              <span>选择文件</span>
+              <input id="file-input" type="file" name="files" multiple>
+            </label>
+            <button type="submit">上传并导入</button>
+          </form>
+
+          <form id="url-form" class="stack inline-form">
+            <label class="field">
+              <span>网页 URL</span>
+              <input id="url-input" type="url" placeholder="https://example.com/docs">
+            </label>
+            <button type="submit">抓取并导入</button>
+          </form>
+
+          <div id="ingest-feedback" class="feedback" aria-live="polite"></div>
+        </section>
+
+        <section>
+          <div class="section-title">
+            <h2>文档库</h2>
+            <button id="refresh-documents" class="ghost" type="button">刷新</button>
+          </div>
+          <div id="documents-list" class="document-list">
+            <p class="placeholder">暂无文档</p>
+          </div>
+        </section>
+      </aside>
+
+      <section class="panel workspace">
+        <div class="section-title">
+          <h2>问答区</h2>
+          <span>基于 SSE 的流式输出</span>
+        </div>
+
+        <form id="ask-form" class="ask-form">
+          <label class="field grow">
+            <span>问题</span>
+            <textarea id="question-input" rows="5" placeholder="例如：BRAG 教程中的 query transformation 解决了什么问题？"></textarea>
+          </label>
+          <label class="field compact">
+            <span>Top K</span>
+            <input id="top-k-input" type="number" min="1" max="20" value="4">
+          </label>
+          <button id="ask-button" type="submit">开始提问</button>
+        </form>
+
+        <div class="answer-stage">
+          <div class="section-title">
+            <h2>回答</h2>
+            <span id="stream-status">等待提问</span>
+          </div>
+          <article id="answer-output" class="answer-output">
+            <p class="placeholder">这里会显示模型的流式回答。</p>
+          </article>
+        </div>
+      </section>
+
+      <aside class="panel sources-panel">
+        <div class="section-title">
+          <h2>来源引用</h2>
+          <span>按检索顺序展示</span>
+        </div>
+        <div class="callout">
+          当前界面先展示来源与文档概览。后续如果补上 <code>doc_id</code> / <code>source_type</code> 检索过滤，这里可以直接扩展为“限定资料范围提问”。
+        </div>
+        <div id="sources-list" class="sources-list">
+          <p class="placeholder">回答完成后显示引用片段。</p>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
+

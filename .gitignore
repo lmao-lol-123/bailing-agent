@@ -41,12 +41,13 @@ logs/
 # Local data and generated indexes
 data/raw/
 data/private/
+data/uploads/
+data/processed/
 storage/
 chroma/
 chroma_db/
 artifacts/
 tmp/
-
 
 # Test runtime
 pytest_tmp/

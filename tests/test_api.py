@@ -66,6 +66,7 @@ def test_api_endpoints() -> None:
     app.dependency_overrides[get_container] = lambda: FakeContainer()
     client = TestClient(app)
 
+    frontend_response = client.get("/")
     health_response = client.get("/health")
     ingest_response = client.post(
         "/ingest/files",
@@ -75,6 +76,8 @@ def test_api_endpoints() -> None:
     documents_response = client.get("/documents")
     stream_response = client.post("/ask/stream", json={"question": "hello"})
 
+    assert frontend_response.status_code == 200
+    assert "工程文档问答工作台" in frontend_response.text
     assert health_response.status_code == 200
     assert ingest_response.json()["results"][0]["source_name"] == "notes.txt"
     assert url_response.json()["results"][0]["source_type"] == "web"

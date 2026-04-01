@@ -12,6 +12,9 @@ class FakeEmbeddings:
     def embed_query(self, text: str) -> list[float]:
         return self._embed(text)
 
+    def __call__(self, text: str) -> list[float]:
+        return self._embed(text)
+
     def _embed(self, text: str) -> list[float]:
         length = float(len(text))
         vowels = float(sum(1 for char in text.lower() if char in "aeiou"))
@@ -49,4 +52,3 @@ class FakeChatClient:
 @pytest.fixture()
 def fake_embeddings() -> FakeEmbeddings:
     return FakeEmbeddings()
-

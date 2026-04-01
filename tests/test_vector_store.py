@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 from uuid import uuid4
@@ -19,8 +19,7 @@ def test_vector_store_adds_and_lists_documents(fake_embeddings) -> None:
     settings = Settings(
         uploads_directory=case_dir / "uploads",
         processed_directory=case_dir / "processed",
-        chroma_persist_directory=case_dir / "chroma",
-        chroma_collection_name="test-collection",
+        faiss_index_directory=case_dir / "faiss",
     )
     settings.ensure_directories()
     store = VectorStoreService(settings=settings, embeddings=fake_embeddings)

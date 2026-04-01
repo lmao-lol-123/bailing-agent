@@ -11,8 +11,7 @@ class Settings(BaseSettings):
     app_name: str = "Engineering RAG Assistant"
     app_env: str = "development"
 
-    openai_api_key: str = "test-openai-key"
-    openai_embedding_model: str = "text-embedding-3-small"
+    sentence_transformer_model: str = "all-MiniLM-L6-v2"
 
     deepseek_api_key: str = "test-deepseek-key"
     deepseek_base_url: str = "https://api.deepseek.com"
@@ -21,8 +20,7 @@ class Settings(BaseSettings):
     data_directory: Path = Path("data")
     uploads_directory: Path = Path("data/uploads")
     processed_directory: Path = Path("data/processed")
-    chroma_persist_directory: Path = Path("storage/chroma")
-    chroma_collection_name: str = "engineering-rag-default"
+    faiss_index_directory: Path = Path("storage/faiss")
 
     retriever_top_k: int = 4
     pdf_min_text_chars: int = 120
@@ -40,7 +38,7 @@ class Settings(BaseSettings):
             self.data_directory,
             self.uploads_directory,
             self.processed_directory,
-            self.chroma_persist_directory,
+            self.faiss_index_directory,
         ):
             directory.mkdir(parents=True, exist_ok=True)
 
@@ -50,4 +48,3 @@ def get_settings() -> Settings:
     settings = Settings()
     settings.ensure_directories()
     return settings
-

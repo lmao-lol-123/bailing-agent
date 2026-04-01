@@ -1,9 +1,9 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from collections import defaultdict
-from math import sqrt
 from typing import Any
 
+from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
 from src.core.config import Settings
@@ -15,68 +15,67 @@ class VectorStoreService:
     def __init__(self, settings: Settings, embeddings: object) -> None:
         self._settings = settings
         self._embeddings = embeddings
-        self._memory_chunks: list[tuple[list[float], IngestedChunk]] = []
-        self._vector_store = None
-        self._backend = "memory"
+        self._index_path = settings.faiss_index_directory / "default_index"
+        self._vector_store = self._load_or_create_store()
 
-        try:
-            from langchain_chroma import Chroma
-
-            self._vector_store = Chroma(
-                collection_name=settings.chroma_collection_name,
-                embedding_function=embeddings,
-                persist_directory=str(settings.chroma_persist_directory),
+    def _load_or_create_store(self) -> FAISS:
+        if self._index_path.exists():
+            return FAISS.load_local(
+                folder_path=str(self._index_path),
+                embeddings=self._embeddings,
+                allow_dangerous_deserialization=True,
             )
-            self._backend = "chroma"
-        except Exception:
-            self._vector_store = None
+
+        bootstrap = Document(
+            page_content="FAISS bootstrap document",
+            metadata={
+                "doc_id": "__bootstrap__",
+                "source_name": "bootstrap",
+                "source_type": SourceType.TXT.value,
+                "source_uri_or_path": "internal://bootstrap",
+                "page_or_section": None,
+            },
+            id="__bootstrap__",
+        )
+        store = FAISS.from_documents([bootstrap], self._embeddings)
+        store.delete(ids=["__bootstrap__"])
+        self._save(store)
+        return store
+
+    def _save(self, store: FAISS | None = None) -> None:
+        target = store or self._vector_store
+        self._index_path.mkdir(parents=True, exist_ok=True)
+        target.save_local(str(self._index_path))
 
     def add_chunks(self, chunks: list[IngestedChunk]) -> None:
         if not chunks:
             return
 
-        if self._backend == "chroma" and self._vector_store is not None:
-            documents = [
-                Document(page_content=chunk.content, metadata=chunk.metadata, id=chunk.chunk_id)
-                for chunk in chunks
-            ]
-            ids = [chunk.chunk_id for chunk in chunks]
-            self._vector_store.add_documents(documents=documents, ids=ids)
-            return
-
-        embeddings = self._embeddings.embed_documents([chunk.content for chunk in chunks])
-        for vector, chunk in zip(embeddings, chunks, strict=True):
-            self._memory_chunks.append((vector, chunk))
+        documents = [
+            Document(page_content=chunk.content, metadata=chunk.metadata, id=chunk.chunk_id)
+            for chunk in chunks
+        ]
+        ids = [chunk.chunk_id for chunk in chunks]
+        self._vector_store.add_documents(documents=documents, ids=ids)
+        self._save()
 
     def similarity_search(self, query: str, k: int | None = None) -> list[Document]:
         top_k = k or self._settings.retriever_top_k
-        if self._backend == "chroma" and self._vector_store is not None:
-            return self._vector_store.similarity_search(query=query, k=top_k)
-
-        query_vector = self._embeddings.embed_query(query)
-        scored = []
-        for vector, chunk in self._memory_chunks:
-            scored.append((self._cosine_similarity(query_vector, vector), chunk))
-        scored.sort(key=lambda item: item[0], reverse=True)
-
-        return [
-            Document(page_content=chunk.content, metadata=chunk.metadata, id=chunk.chunk_id)
-            for _, chunk in scored[:top_k]
-        ]
+        documents = self._vector_store.similarity_search(query=query, k=top_k)
+        return [document for document in documents if document.metadata.get("doc_id") != "__bootstrap__"]
 
     def list_documents(self) -> list[DocumentSummary]:
-        if self._backend == "chroma" and self._vector_store is not None:
-            collection = self._vector_store.get(include=["metadatas"])
-            metadatas = collection.get("metadatas", [])
-        else:
-            metadatas = [chunk.metadata for _, chunk in self._memory_chunks]
+        metadatas = list(self._vector_store.docstore._dict.values())
 
         buckets: dict[str, dict[str, Any]] = defaultdict(
             lambda: {"source_name": "", "source_type": "", "source_uri_or_path": "", "count": 0, "sections": set()}
         )
 
-        for metadata in metadatas:
+        for entry in metadatas:
+            metadata = entry.metadata if hasattr(entry, "metadata") else None
             if metadata is None:
+                continue
+            if metadata.get("doc_id") == "__bootstrap__":
                 continue
             doc_id = str(metadata["doc_id"])
             bucket = buckets[doc_id]
@@ -118,10 +117,3 @@ class VectorStoreService:
                 )
             )
         return citations
-
-    @staticmethod
-    def _cosine_similarity(left: list[float], right: list[float]) -> float:
-        numerator = sum(a * b for a, b in zip(left, right, strict=True))
-        left_norm = sqrt(sum(a * a for a in left)) or 1.0
-        right_norm = sqrt(sum(b * b for b in right)) or 1.0
-        return numerator / (left_norm * right_norm)

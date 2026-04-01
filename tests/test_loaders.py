@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 from uuid import uuid4
@@ -24,7 +24,7 @@ def test_txt_file_uses_text_loader() -> None:
     settings = Settings(
         uploads_directory=case_dir / "uploads",
         processed_directory=case_dir / "processed",
-        chroma_persist_directory=case_dir / "chroma",
+        faiss_index_directory=case_dir / "faiss",
     )
     settings.ensure_directories()
     router = DocumentLoaderRouter(settings)
@@ -45,7 +45,7 @@ def test_pdf_falls_back_to_mineru_when_extraction_quality_is_low(monkeypatch) ->
     settings = Settings(
         uploads_directory=case_dir / "uploads",
         processed_directory=case_dir / "processed",
-        chroma_persist_directory=case_dir / "chroma",
+        faiss_index_directory=case_dir / "faiss",
         pdf_min_text_chars=50,
     )
     settings.ensure_directories()

@@ -55,8 +55,8 @@ Recommended baseline stack:
 - Orchestration: LangChain.
 - API: FastAPI.
 - Validation: Pydantic.
-- Vector store: Chroma for the first version.
-- Embeddings: `text-embedding-3-small`.
+- Vector store: FAISS for the first version.
+- Embeddings: `all-MiniLM-L6-v2`.
 - Retrieval: similarity search.
 - LLM: DeepSeek API.
 - Chunking: semantic chunking.
@@ -66,7 +66,7 @@ Recommended baseline stack:
 Reasoning:
 
 - LangChain and FastAPI are mature enough, widely used, and sufficient for a lightweight first version.
-- Chroma is lightweight enough for local development and provides simpler persistence and collection management than raw FAISS.
+- FAISS is lightweight, fast, and well-suited to local single-machine retrieval.
 - Milvus is not justified in the first phase because it adds service and operations complexity.
 
 ## Environment Management
@@ -149,7 +149,7 @@ The initial pipeline should stay close to this shape:
 1. Load documents.
 2. Clean and normalize text.
 3. Split into chunks with metadata.
-4. Build embeddings and Chroma index.
+4. Build embeddings and FAISS index.
 5. Retrieve top-k chunks with similarity search.
 6. Optionally rerank retrieved chunks.
 7. Generate answer strictly from retrieved context.
@@ -164,8 +164,8 @@ Prefer a single retrieval pipeline first:
 
 Vector store selection policy:
 
-- Default to Chroma in phase one.
-- Keep a clean adapter boundary so FAISS can still be evaluated later if needed.
+- Default to FAISS in phase one.
+- Keep a clean adapter boundary so the vector store can still be replaced later if needed.
 - Consider Milvus only for later service-oriented or larger-scale deployment.
 - Do not switch vector stores without evaluation evidence.
 
@@ -286,7 +286,7 @@ Use Context7 as a documentation assistant when implementing with mature framewor
 
 Allowed uses:
 
-- Look up current LangChain, FastAPI, Pydantic, Chroma, and testing documentation.
+- Look up current LangChain, FastAPI, Pydantic, FAISS, sentence-transformers, and testing documentation.
 - Check idiomatic API usage before introducing new framework code.
 - Verify version-specific usage when local knowledge may be stale.
 

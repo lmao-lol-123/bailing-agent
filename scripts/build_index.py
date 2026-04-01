@@ -7,7 +7,7 @@ from src.core.dependencies import get_container
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build the default Chroma index from local files.")
+    parser = argparse.ArgumentParser(description="Build the default FAISS index from local files.")
     parser.add_argument("paths", nargs="+", help="File paths to ingest.")
     parser.add_argument("--force-mineru", action="store_true", help="Force MinerU for PDF files.")
     args = parser.parse_args()
@@ -25,4 +25,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

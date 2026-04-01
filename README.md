@@ -1,26 +1,37 @@
 # Engineering RAG Assistant
 
-A lightweight Python RAG question answering assistant for engineering documents.
+[中文](./README.md) | [English](./README.en.md)
 
-## Goals
+面向工程文档的轻量级 RAG 问答助手。当前版本以“本地可运行、低幻觉、可追溯来源”为核心目标，优先保证简单、稳定、可维护。
 
-- Answer questions across multiple documents.
-- Keep hallucination rate low.
-- Return answers with source references.
-- Stay lightweight and practical for local development on Windows.
+## 项目目标
 
-## First-Phase Scope
+- 支持多文档问答
+- 降低幻觉，尽量只基于检索上下文作答
+- 返回来源引用与片段
+- 支持流式输出
+- 适合 Windows 本地开发
 
-- Input types: web pages, PDF, Word `.docx`, Markdown, CSV, JSON, TXT
-- Vector store: FAISS
-- Embeddings: `all-MiniLM-L6-v2`
-- Retrieval: similarity search
-- LLM: DeepSeek API
-- Output: streaming answers with citations
+## 当前技术栈
 
-## Environment Setup
+- Python
+- FastAPI
+- LangChain loaders + splitters
+- `sentence-transformers` / `all-MiniLM-L6-v2`
+- FAISS
+- DeepSeek API
 
-This project uses a repository-local virtual environment. Do not install project dependencies into the Conda `base` environment.
+## 当前能力
+
+- 支持导入网页、PDF、`.docx`、Markdown、CSV、JSON、TXT
+- 支持文档清洗、分块、向量化、索引、相似度检索
+- 支持问答流式输出和来源引用
+- 内置轻量 Web UI
+- 提供 CLI 与 API 两种入口
+
+## 快速开始
+
+项目使用仓库本地虚拟环境，不要把依赖安装到 Conda `base`。
 
 ```powershell
 python -m venv .venv
@@ -29,17 +40,26 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-## Development Workflow
+启动服务：
+
+```powershell
+.venv\Scripts\activate
+uvicorn src.api.main:app --reload
+```
+
+启动后访问：
+
+- Web UI: `http://127.0.0.1:8000/`
+- API docs: `http://127.0.0.1:8000/docs`
+
+运行测试：
 
 ```powershell
 .venv\Scripts\activate
 pytest
-uvicorn src.api.main:app --reload
 ```
 
-启动后可直接打开 `http://127.0.0.1:8000/` 使用内置前端页面。
-
-## API Endpoints
+## API 入口
 
 - `GET /`
 - `GET /health`
@@ -48,39 +68,25 @@ uvicorn src.api.main:app --reload
 - `GET /documents`
 - `POST /ask/stream`
 
-## Document Loading Plan
+## 文档加载策略
 
-- Web pages: `WebBaseLoader`
-- PDF: `PyPDFLoader` by default, fallback to MinerU for scanned or poor-quality extraction
+- Web: `WebBaseLoader`
+- PDF: 默认 `PyPDFLoader`，必要时 fallback 到 MinerU
 - Word `.docx`: `UnstructuredWordDocumentLoader`
 - Markdown: `UnstructuredMarkdownLoader`
 - CSV: `CSVLoader`
 - JSON: `JSONLoader`
-- TXT: simple text loader
+- TXT: 简单文本加载器
 
-## Scripts
+## 当前限制
 
-- `python -m scripts.build_index <paths...>`
-- `python -m scripts.ask "your question"`
+- 当前默认是单知识库
+- 检索以相似度搜索为主，rerank 尚未默认启用
+- 复杂 PDF 和扫描件仍依赖 fallback 方案
+- 检索过滤能力仍可继续增强，例如 `doc_id` / `source_type` 过滤
+- 目前只有最小 CI，尚未配置真正的自动部署
 
-## Runtime Config
-
-- `SENTENCE_TRANSFORMER_MODEL=all-MiniLM-L6-v2`
-- `DEEPSEEK_API_KEY=...`
-- `DEEPSEEK_BASE_URL=https://api.deepseek.com`
-- `DEEPSEEK_MODEL=deepseek-chat`
-- `FAISS_INDEX_DIRECTORY=storage/faiss`
-
-## Git Rules
-
-- Do not commit `.venv/` or other local environment directories.
-- Do not commit `.env` or API keys.
-- Do not commit private raw documents.
-- Do not commit generated FAISS index data unless intentionally versioning a sample dataset.
-- Run basic tests before pushing to GitHub.
-
-## Reference
+## 参考
 
 - Deeptoai RAG docs: [https://rag.deeptoai.com/docs](https://rag.deeptoai.com/docs)
-- Project rules: [AGENTS.md](/D:/bailing-agent/AGENTS.md)
-
+- 项目规则: [AGENTS.md](/D:/bailing-agent/AGENTS.md)

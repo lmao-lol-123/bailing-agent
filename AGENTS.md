@@ -1,100 +1,137 @@
-# AGENTS.md - Engineering RAG Assistant Guide
+﻿# AGENTS.md - Engineering RAG Assistant Guide
 
-This file defines the working rules for Codex and other AI coding agents in this repository.
+This file defines working rules for Codex and other AI coding agents in this repository.
+
+## Windows Tooling Rules
+
+- If `apply_patch` fails, immediately fall back to PowerShell file writes and continue with tests. Do not retry alternative patch methods.
+- All `shell_command` calls must use `login:false` to avoid `profile.ps1` execution policy errors.
 
 ## Project Goal
 
-Build a lightweight Python RAG question answering assistant for engineering documents.
+Build a lightweight Python RAG assistant for engineering documents.
 
 Core requirements:
 
 - Answer questions across multiple documents.
 - Keep hallucination rate low.
 - Prefer simple and stable architecture over feature breadth.
-- Use mature frameworks and common engineering practices.
 - Run locally on Windows during development.
 - Return answers with source references.
 - Support streaming output.
 
+## Current Development Priority
+
+Backend comes first.
+
+- Prioritize backend ingestion, retrieval, generation, evaluation, and API reliability.
+- Frontend under `frontend/` is maintenance-only for now.
+- Do not spend time on UI refactors, new frontend features, or frontend architecture unless the user explicitly asks for it.
+- If an API change requires UI compatibility, keep the frontend change minimal and local.
+
 ## Product Scope
 
-The first milestone is a minimal usable system, not a full platform.
+In scope for the current phase:
 
-In scope:
-
-- Document ingestion for web pages, PDF, Word, Markdown, CSV, JSON, and TXT.
-- Chunking, embedding, indexing, retrieval, and answer generation.
+- Document ingestion for web pages, PDF, Word `.docx`, Markdown, CSV, JSON, and TXT.
+- Chunking, embedding, FAISS indexing, retrieval, and answer generation.
 - Source-grounded answers with citations.
-- Simple API service and a minimal CLI or test entrypoint.
+- FastAPI service and lightweight CLI scripts.
 - Basic offline evaluation for retrieval and answer quality.
 
-Out of scope for the first phase:
+Out of scope for the current phase:
 
 - Multi-agent orchestration.
-- Complex workflow engines unless clearly necessary.
-- Heavy UI, multi-tenant auth, or distributed deployment.
+- Complex workflow engines unless there is a clear need.
+- Heavy frontend work, multi-tenant auth, or distributed deployment.
 - Full-site crawling, recursive crawling, or sitemap ingestion.
-- Premature support for many vector databases.
+- Premature support for multiple vector databases.
 
-## Non-Negotiable Principles
+## Non-Negotiable RAG Principles
 
-- Ground every answer in retrieved context. If evidence is weak, answer with uncertainty instead of fabricating.
-- Return cited source snippets or source locations whenever possible.
-- Prefer conservative generation over aggressive free-form answering.
-- Keep dependencies lean. Do not add large frameworks without clear justification.
-- Prefer boring, maintainable solutions.
+- Ground every answer in retrieved context.
+- If evidence is weak or missing, answer with uncertainty instead of fabricating.
+- Return cited snippets or source locations whenever possible.
+- Keep retrieval metadata attached through the full pipeline.
+- Prefer conservative generation over broad free-form answering.
+- Support streaming output without losing citation structure.
+- Keep dependencies lean and favor boring, maintainable components.
+
+## Repository Layout
+
+```text
+backend/
+  src/
+    api/
+    core/
+    ingest/
+    retrieve/
+    generate/
+    eval/
+    models/
+  scripts/
+  tests/
+frontend/
+docs/
+data/
+storage/
+```
+
+Directory conventions:
+
+- `backend/src/api/`: FastAPI routes, request/response schemas, SSE streaming, static entrypoint wiring.
+- `backend/src/core/`: configuration, dependency assembly, shared data models, chat history store, text utilities.
+- `backend/src/ingest/`: file/url loading, parser routing, text normalization, chunking, ingestion orchestration.
+- `backend/src/retrieve/`: embedding provider setup, FAISS vector store adapter, similarity search, citation construction.
+- `backend/src/generate/`: prompt templates and answer streaming service.
+- `backend/src/eval/`: offline benchmark dataset models and loaders.
+- `backend/src/models/`: reserved package for future model abstractions.
+- `backend/scripts/`: developer CLI entrypoints only, not core business logic.
+- `backend/tests/`: pytest suite and fixtures.
+- `frontend/`: minimal static Web UI. Keep changes small unless explicitly requested.
+- `docs/`: project documentation.
+- `data/`: local sample/input documents only. Do not commit sensitive documents.
+- `storage/`: local generated FAISS index and SQLite chat history.
+
+## Module Tech Stack
+
+| Module | Responsibility | Stack |
+| --- | --- | --- |
+| `backend/src/api` | HTTP API, SSE streaming, serving frontend entrypoint | FastAPI, Pydantic, StreamingResponse, StaticFiles |
+| `backend/src/core` | Settings, DI container, domain models, chat persistence, text helpers | pydantic-settings, Pydantic, SQLite, Python stdlib |
+| `backend/src/ingest` | Document loading, normalization, semantic chunking, ingestion orchestration | LangChain loaders, SemanticChunker, RecursiveCharacterTextSplitter, PyPDFLoader, Unstructured loaders |
+| `backend/src/retrieve` | Embedding model creation, FAISS index, similarity search, citation formatting | sentence-transformers, all-MiniLM-L6-v2, FAISS, LangChain FAISS vector store |
+| `backend/src/generate` | Prompt construction and grounded streaming answer generation | OpenAI SDK, DeepSeek API, FastAPI jsonable_encoder |
+| `backend/src/eval` | Evaluation dataset schema and loader | Pydantic, JSON |
+| `backend/scripts` | CLI ingestion and ask entrypoints | argparse, asyncio |
+| `backend/tests` | Unit/integration tests | pytest, pytest-asyncio, FastAPI TestClient |
+| `frontend` | Minimal browser UI | HTML, CSS, JavaScript |
 
 ## Technical Direction
 
-Language:
+Baseline stack:
 
-- Python only.
+- Language: Python
+- API: FastAPI
+- Validation: Pydantic
+- Config: pydantic-settings
+- Document orchestration/parsing: LangChain loaders and splitters
+- Vector store: FAISS
+- Embeddings: `all-MiniLM-L6-v2` via `sentence-transformers`
+- Retrieval: similarity search first
+- LLM: DeepSeek API through the OpenAI-compatible SDK
+- Testing: pytest, pytest-asyncio
 
-Recommended baseline stack:
+Decision rules:
 
-- Orchestration: LangChain.
-- API: FastAPI.
-- Validation: Pydantic.
-- Vector store: FAISS for the first version.
-- Embeddings: `all-MiniLM-L6-v2`.
-- Retrieval: similarity search.
-- LLM: DeepSeek API.
-- Chunking: semantic chunking.
-- Rerank: add only if evaluation shows retrieval precision needs help.
-- Testing: pytest.
+- Choose the simpler option unless evaluation proves more complexity is needed.
+- Keep a clean adapter boundary for model and vector-store providers.
+- Do not switch away from FAISS or add rerank/hybrid retrieval without evaluation evidence.
+- Avoid coupling ingestion, retrieval, and generation into a single large module.
 
-Reasoning:
+## Document Loading Policy
 
-- LangChain and FastAPI are mature enough, widely used, and sufficient for a lightweight first version.
-- FAISS is lightweight, fast, and well-suited to local single-machine retrieval.
-- Milvus is not justified in the first phase because it adds service and operations complexity.
-
-## Environment Management
-
-Use a project-local Python virtual environment for dependency isolation.
-
-Rules:
-
-- Do not install project dependencies into the Conda `base` environment.
-- Use a repository-local virtual environment such as `.venv` or `venv`.
-- Keep the project environment isolated from global Python and Conda environments.
-- Add the local virtual environment directory to `.gitignore`.
-- Document the chosen environment directory name in project docs.
-
-Recommended commands:
-
-```powershell
-python -m venv .venv
-.venv\Scripts\activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-If Conda is used as a Python distribution provider on the machine, do not install project packages into `base`. The project runtime still belongs in the repository-local virtual environment.
-
-## Document Loading Strategy
-
-Supported first-phase inputs:
+Supported input types in this phase:
 
 - Web pages
 - PDF
@@ -104,13 +141,7 @@ Supported first-phase inputs:
 - JSON
 - TXT
 
-Loader policy:
-
-- Use mature, lightweight loaders by default for text-first formats.
-- Do not route every file type through one heavy parser.
-- Keep loader selection explicit by file type.
-
-Default loader mapping in phase one:
+Default loader mapping:
 
 - Web pages: `WebBaseLoader`
 - PDF: `PyPDFLoader` by default
@@ -118,197 +149,163 @@ Default loader mapping in phase one:
 - Markdown: `UnstructuredMarkdownLoader`
 - CSV: `CSVLoader`
 - JSON: `JSONLoader`
-- TXT: a simple text loader
+- TXT: simple text loader
 
-Web loading policy:
+PDF policy:
 
-- First phase supports fetching main text content from a single URL.
-- Do not implement full-site crawling, recursive crawling, or sitemap ingestion in the first phase.
-- Prefer main body text extraction over page styling or navigation retention.
+- Prefer `PyPDFLoader` for normal text PDFs.
+- Allow MinerU fallback for scanned or layout-heavy PDFs when extraction quality is poor.
+- Keep manual override support for forcing MinerU on a document.
+- Do not make MinerU the universal default.
 
-PDF parsing policy:
+Web policy:
 
-- For normal text PDFs, prefer a lighter parser first.
-- For scanned PDFs or layout-heavy PDFs, allow an OCR-capable parser path.
-- MinerU is allowed as the advanced PDF parsing option for scanned or complex PDFs.
-- Do not make MinerU the universal default for all documents, because it adds weight and operational complexity.
-- Use `PyPDFLoader` as the default PDF path.
-- If extraction yields too little usable text, severe garbling, or poor text quality, fallback to MinerU.
-- Keep a manual override so a document can be forced to use MinerU when needed.
+- Only single-URL page loading is in scope for now.
+- Do not implement full-site crawling, recursive crawling, or sitemap ingestion in this phase.
 
-Word parsing policy:
+Word policy:
 
-- First phase supports `.docx` only.
-- Do not implement legacy `.doc` support unless there is a confirmed business need.
-- Prefer a mature DOCX-oriented loader.
+- Support `.docx` only for now.
+- Do not add legacy `.doc` handling without a confirmed need.
 
-## Architecture Priorities
-
-The initial pipeline should stay close to this shape:
+## Expected Pipeline Shape
 
 1. Load documents.
 2. Clean and normalize text.
 3. Split into chunks with metadata.
 4. Build embeddings and FAISS index.
-5. Retrieve top-k chunks with similarity search.
-6. Optionally rerank retrieved chunks.
-7. Generate answer strictly from retrieved context.
+5. Retrieve top-k chunks by similarity.
+6. Optionally rerank only after evaluation evidence.
+7. Generate answers strictly from retrieved context.
 8. Stream the answer to the client.
-9. Return answer plus citations.
+9. Return final answer plus citations.
 
-Prefer a single retrieval pipeline first:
-
-- Similarity retrieval first.
-- Add hybrid retrieval only if evaluation shows clear gaps.
-- Add rerank only if top-k recall is acceptable but answer precision is weak.
-
-Vector store selection policy:
-
-- Default to FAISS in phase one.
-- Keep a clean adapter boundary so the vector store can still be replaced later if needed.
-- Consider Milvus only for later service-oriented or larger-scale deployment.
-- Do not switch vector stores without evaluation evidence.
-
-## Low-Hallucination Requirements
-
-All implementations should optimize for factual grounding.
-
-Required behaviors:
-
-- Use a prompt that tells the model to answer only from provided context.
-- If the answer is not supported by the retrieved material, say so explicitly.
-- Include references to the chunks or source documents used.
-- Keep retrieval metadata attached through the full pipeline.
-- Avoid summarizing beyond the evidence.
-- Support streaming output without losing citations or answer structure.
-
-Preferred answer policy:
+Preferred answer format:
 
 - Short answer first.
-- Then supporting evidence.
-- Then source references.
+- Supporting evidence next.
+- Source references last.
 
-## Suggested Repository Layout
+## Environment Management
 
-Keep the layout small and explicit:
+Use a repository-local virtual environment only.
 
-```text
-src/
-  api/
-  core/
-  ingest/
-  retrieve/
-  generate/
-  eval/
-  models/
-tests/
-docs/
-scripts/
-data/
+Rules:
+
+- Do not install project dependencies into Conda `base`.
+- Use `.venv` or another repo-local venv.
+- Keep the venv directory in `.gitignore`.
+- Keep test/runtime temp files inside the repository when possible.
+
+Setup:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
-Conventions:
+## Developer Commands
 
-- `src/ingest/`: loaders, parsing, chunking, metadata extraction.
-- `src/retrieve/`: embedding, indexing, retrieval, rerank.
-- `src/generate/`: prompt building and answer generation.
-- `src/eval/`: offline evaluation utilities and benchmark scripts.
-- `scripts/`: developer scripts only, not core business logic.
-- `data/`: local sample data only; avoid committing sensitive source documents.
+Start API:
+
+```powershell
+.venv\Scripts\activate
+uvicorn backend.src.api.main:app --reload
+```
+
+Build index from local files:
+
+```powershell
+.venv\Scripts\activate
+python -m backend.scripts.build_index data\sample.txt
+```
+
+Ask from CLI:
+
+```powershell
+.venv\Scripts\activate
+python -m backend.scripts.ask "your question"
+```
+
+## Test Execution Policy
+
+Do not run the full test suite automatically during normal edits.
+
+Rules:
+
+- Prefer lightweight static checks or targeted tests relevant to the change.
+- Do not invoke plain full `pytest` by default after every edit.
+- If pytest is needed, keep runtime files under `backend/.pytest-tmp`.
+- Current `pytest.ini` disables cacheprovider to avoid root-level `.pytest*` artifacts on Windows.
+
+Examples:
+
+```powershell
+.venv\Scripts\activate
+pytest
+python -m pytest backend\tests\test_api.py -q
+```
+
+## Evaluation Expectations
+
+Minimum RAG evaluation expectations:
+
+- Keep a small gold dataset of questions and expected source documents.
+- Measure retrieval hit quality for top-k results.
+- Manually inspect hallucination failures.
+- Record failure cases before adding retrieval/generation complexity.
+- Verify that streamed responses keep citation correctness.
+
+Useful metrics:
+
+- Retrieval hit rate
+- Citation correctness
+- Unsupported-answer rate
+- Latency
 
 ## Coding Rules
 
 - Keep functions small and composable.
-- Prefer explicit data models over loose dictionaries.
 - Add type hints for public functions and core pipeline modules.
+- Prefer explicit Pydantic/domain models over loose dictionaries.
 - Avoid hidden global state.
-- Isolate model providers and vector store adapters behind clear interfaces.
-- Keep document loaders modular so PDF OCR and normal text extraction can evolve independently.
-- Write code that can be swapped from one embedding model or LLM to another with minimal change.
-
-Do not:
-
-- Hardcode secrets, tokens, or machine-specific paths.
-- Couple ingestion, retrieval, and generation tightly in one file.
-- Introduce async complexity unless it materially improves the API layer.
-
-## Evaluation Expectations
-
-No RAG work is complete without at least lightweight evaluation.
-
-Minimum evaluation expectations:
-
-- Maintain a small gold dataset of questions and expected source documents.
-- Measure retrieval hit quality for top-k results.
-- Manually inspect hallucination cases.
-- Record failure cases before adding more complexity.
-- Test that citations remain correct in streamed responses.
-
-Useful evaluation dimensions:
-
-- retrieval hit rate
-- citation correctness
-- unsupported answer rate
-- latency
-
-## Developer Commands
-
-These commands are the baseline workflow:
-
-```powershell
-.venv\Scripts\activate
-pip install -r requirements.txt
-pytest
-uvicorn src.api.main:app --reload
-```
-
-If a script is added for indexing, keep it explicit, for example:
-
-```powershell
-python -m scripts.build_index
-```
+- Keep model providers and vector-store adapters isolated behind clear interfaces.
+- Keep document loaders modular by file type.
+- Write code so embedding model or LLM provider changes are localized.
+- Do not hardcode secrets, tokens, or machine-specific absolute paths.
+- Avoid async complexity unless it materially improves the API layer.
 
 ## Documentation Expectations
 
-Keep docs focused on execution:
+Keep docs focused on execution and backend behavior:
 
-- How to create and activate the local virtual environment.
-- How to configure model keys or local model settings.
-- How to ingest documents.
-- How to build or refresh the index.
-- How to run tests and evaluation.
-- Which loaders are used for each supported file type.
-- Known limitations and current hallucination risks.
+- How to create the local venv.
+- How to configure model keys.
+- How to ingest documents and rebuild indexes.
+- How to run API/CLI and targeted tests.
+- Which loader each document type uses.
+- Known limitations, hallucination risks, and evaluation status.
 
-## Tooling Guidance
+## Context7 Usage
 
-Use Context7 as a documentation assistant when implementing with mature frameworks.
+Use Context7 only as a documentation lookup helper for mature framework APIs.
 
-Allowed uses:
+Allowed:
 
-- Look up current LangChain, FastAPI, Pydantic, FAISS, sentence-transformers, and testing documentation.
-- Check idiomatic API usage before introducing new framework code.
-- Verify version-specific usage when local knowledge may be stale.
+- Checking current FastAPI, Pydantic, LangChain, FAISS, sentence-transformers, or pytest usage.
+- Verifying version-specific API details before coding.
 
-Do not use Context7 for:
+Not allowed:
 
-- Replacing project architecture decisions.
-- Inventing complexity not required by this repository.
-- Treating third-party examples as authoritative without adapting them to this project's lightweight goals.
+- Replacing project architecture decisions with third-party examples.
+- Adding complexity just because a framework example exists.
 
-## Decision Heuristics For Agents
+## Reference
 
-When making implementation choices:
+- Deeptoai RAG docs: https://rag.deeptoai.com/docs
 
-- Choose the simpler option unless evaluation data justifies more complexity.
-- Prefer local, inspectable components over opaque platform dependencies.
-- Prefer changes that improve grounding, observability, and testability.
-- If a feature increases hallucination risk, reject it or gate it behind evaluation.
+Use that site as reference material, not as a mandate.
 
-## Reference Material
 
-This project may refer to the Deeptoai RAG docs for architecture ideas and terminology:
-
-- https://rag.deeptoai.com/docs
-
-Use that site as a reference, not as a mandate. This repository should remain lightweight and practical.

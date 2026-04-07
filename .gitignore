@@ -1,4 +1,4 @@
-# Python
+﻿# Python
 __pycache__/
 *.py[cod]
 *.pyd
@@ -50,5 +50,10 @@ artifacts/
 tmp/
 
 # Test runtime
+backend/.pytest-tmp/
+.pytest_tmp/
+.pytest_tmp_run/
 pytest_tmp/
 test_runtime/
+
+

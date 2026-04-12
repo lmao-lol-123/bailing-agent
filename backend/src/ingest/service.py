@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import shutil
 from pathlib import Path
@@ -15,7 +15,7 @@ class IngestionService:
     def __init__(self, settings: Settings, embeddings: object, vector_store: VectorStoreService) -> None:
         self._settings = settings
         self._router = DocumentLoaderRouter(settings)
-        self._chunking = StructureAwareChunkingService(settings=settings, embeddings=embeddings)
+        self._chunking = StructureAwareChunkingService(settings=settings, embeddings=embeddings, persist_parent_store=True)
         self._vector_store = vector_store
 
     def ingest_saved_file(self, file_path: Path, force_mineru: bool = False) -> IngestResult:
@@ -60,3 +60,4 @@ class IngestionService:
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_path, destination)
         return destination
+

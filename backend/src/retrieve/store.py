@@ -85,8 +85,53 @@ class VectorStoreService:
             and self._matches_metadata_filter(document.metadata or {}, metadata_filter)
         ]
         reranked_documents = self._rerank_documents(query=query, scored_documents=filtered_scored_documents)
-        return [document for document, _score in reranked_documents[:top_k]]
+        return self._replace_child_hits_with_parent_content(reranked_documents=reranked_documents, top_k=top_k)
 
+    def _replace_child_hits_with_parent_content(
+        self,
+        *,
+        reranked_documents: list[tuple[Document, float]],
+        top_k: int,
+    ) -> list[Document]:
+        returned_documents: list[Document] = []
+        parent_buckets: dict[str, dict[str, Any]] = {}
+        passthrough: list[Document] = []
+
+        for document, score in reranked_documents:
+            metadata = dict(document.metadata or {})
+            parent_chunk_id = metadata.get("parent_chunk_id")
+            if not parent_chunk_id:
+                passthrough.append(document)
+                continue
+
+            parent_key = str(parent_chunk_id)
+            chunk_id = str(metadata.get("chunk_id") or getattr(document, "id", "") or len(parent_buckets))
+            bucket = parent_buckets.get(parent_key)
+            if bucket is None:
+                parent_buckets[parent_key] = {
+                    "score": score,
+                    "document": document,
+                    "child_ids": [chunk_id],
+                }
+                continue
+            bucket["child_ids"].append(chunk_id)
+            if score > float(bucket["score"]):
+                bucket["score"] = score
+                bucket["document"] = document
+
+        for bucket in parent_buckets.values():
+            source_document = bucket["document"]
+            metadata = dict(source_document.metadata or {})
+            matched_child_ids = list(dict.fromkeys(str(item) for item in bucket["child_ids"] if str(item)))
+            metadata["matched_child_ids"] = matched_child_ids
+            metadata["matched_child_count"] = len(matched_child_ids)
+            parent_content = metadata.get("parent_content")
+            child_content = metadata.get("child_content") or source_document.page_content
+            page_content = str(parent_content) if isinstance(parent_content, str) and parent_content.strip() else str(child_content)
+            returned_documents.append(Document(page_content=page_content, metadata=metadata, id=getattr(source_document, "id", None)))
+
+        returned_documents.extend(passthrough)
+        return returned_documents[:top_k]
     def list_documents(self) -> list[DocumentSummary]:
         metadatas = list(self._vector_store.docstore._dict.values())
 
@@ -271,3 +316,6 @@ class VectorStoreService:
     @staticmethod
     def _tokenize(text: str) -> set[str]:
         return {token.lower() for token in _TOKEN_PATTERN.findall(text)}
+
+
+

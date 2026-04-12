@@ -13,7 +13,7 @@ from langchain_core.documents import Document
 
 from backend.src.core.config import Settings
 from backend.src.core.models import NormalizedDocument, SourceType
-from backend.src.ingest.cleaning import ParsedPage, StructuredBlock, StructuredContentCleaner
+from backend.src.ingest.cleaning import ParsedPage, StructuredBlock, StructuredContentCleaner, StructuredDocument
 from backend.src.ingest.pdf_parser import MinerUFallbackError, PDFParsingService
 
 
@@ -30,19 +30,22 @@ class DocumentLoaderRouter:
 
         if suffix == ".pdf":
             pages, used_mineru, parser_metadata = self._pdf_parser.parse_pdf(file_path=file_path, force_mineru=force_mineru)
-            base_title = file_path.stem
-            blocks = self._cleaner.build_blocks(pages=pages, title=base_title, include_page_markers=True)
-            normalized_documents = self._build_documents_from_blocks(
+            structured_document = self._cleaner.build_document_from_pages(
                 doc_id=doc_id,
                 source_type=SourceType.PDF,
+                title=file_path.stem,
+                pages=pages,
+                include_page_markers=True,
+            )
+            normalized_documents = self._build_documents_from_structured_document(
+                structured_document=structured_document,
                 source_name=file_path.name,
                 source_uri_or_path=str(file_path),
                 updated_at=updated_at,
-                blocks=blocks,
                 base_metadata=parser_metadata,
                 cleaning_rules_applied=self._build_pdf_cleaning_rules(parser_metadata),
                 fallback_used=used_mineru,
-                base_title=base_title,
+                base_title=file_path.stem,
             )
             return normalized_documents, used_mineru
 
@@ -99,53 +102,27 @@ class DocumentLoaderRouter:
         for index, document in enumerate(documents, start=1):
             metadata = dict(document.metadata or {})
             raw_text = document.page_content or ""
-            cleaned_text, cleaning_rules = self._cleaner.clean_non_pdf_text(text=raw_text, source_type=source_type)
-            if not cleaned_text:
-                continue
-
+            title = self._extract_title(source_name=source_name, metadata=metadata, content=raw_text)
             page_or_section = self._extract_page_or_section(metadata, index)
             page = self._extract_page(metadata, page_or_section)
-            title = self._extract_title(source_name=source_name, metadata=metadata, content=cleaned_text)
             block_page = self._coerce_page_number(page, index)
-            blocks = self._cleaner.build_blocks(
-                pages=[
-                    ParsedPage(
-                        page_number=block_page,
-                        page_label=str(page) if page is not None else str(block_page),
-                        text=cleaned_text,
-                        metadata={"source_page_count": 1},
-                    )
-                ],
-                title=title,
-                include_page_markers=False,
-            )
-            if not blocks:
-                blocks = [
-                    StructuredBlock(
-                        block_id=str(uuid4()),
-                        block_type="paragraph",
-                        text=cleaned_text,
-                        page_number=block_page,
-                        page_label=str(page) if page is not None else str(block_page),
-                        order=0,
-                        section_path=[title] if title else [],
-                        metadata={"related_block_ids": [], "references_figures": [], "references_tables": []},
-                    )
-                ]
+            page_label = str(page) if page is not None else str(block_page)
 
+            structured_document, cleaning_rules = self._cleaner.build_document_from_non_pdf(
+                doc_id=doc_id,
+                source_type=source_type,
+                title=title,
+                text=raw_text,
+                page_number=block_page,
+                page_label=page_label,
+            )
             normalized_documents.extend(
-                self._build_documents_from_blocks(
-                    doc_id=doc_id,
-                    source_type=source_type,
+                self._build_documents_from_structured_document(
+                    structured_document=structured_document,
                     source_name=source_name,
                     source_uri_or_path=source_uri_or_path,
                     updated_at=updated_at,
-                    blocks=blocks,
-                    base_metadata=metadata | {
-                        "loader": self._detect_loader_name(source_type),
-                        "cleaning_path": "non_pdf",
-                        "source_page_count": 1,
-                    },
+                    base_metadata=metadata | {"loader": self._detect_loader_name(source_type), "cleaning_path": "non_pdf", "source_page_count": 1},
                     cleaning_rules_applied=cleaning_rules,
                     fallback_used=False,
                     base_title=title,
@@ -153,51 +130,57 @@ class DocumentLoaderRouter:
             )
         return normalized_documents
 
-    def _build_documents_from_blocks(
+    def _build_documents_from_structured_document(
         self,
         *,
-        doc_id: str,
-        source_type: SourceType,
+        structured_document: StructuredDocument,
         source_name: str,
         source_uri_or_path: str,
         updated_at,
-        blocks: list[StructuredBlock],
         base_metadata: dict[str, Any],
         cleaning_rules_applied: list[str],
         fallback_used: bool,
         base_title: str | None,
     ) -> list[NormalizedDocument]:
+        excluded_block_ids = [block.block_id for block in structured_document.blocks if block.metadata.get("excluded_from_body")]
         documents: list[NormalizedDocument] = []
-        for block in blocks:
+        for block in structured_document.blocks:
             metadata = {
                 **base_metadata,
                 **block.metadata,
                 "block_id": block.block_id,
                 "block_type": block.block_type,
                 "order": block.order,
+                "block_order": block.metadata.get("block_order", block.order),
                 "cleaning_rules_applied": cleaning_rules_applied,
-                "removed_page_artifacts": [],
+                "removed_page_artifacts": excluded_block_ids,
                 "fallback_used": fallback_used,
                 "page": str(block.page_number) if block.page_number is not None else None,
                 "page_label": block.page_label,
                 "related_block_ids": block.metadata.get("related_block_ids", []),
                 "references_figures": block.metadata.get("references_figures", []),
                 "references_tables": block.metadata.get("references_tables", []),
+                "bbox": block.bbox,
+                "layout_role": block.layout_role,
+                "graph_edges": block.metadata.get("graph_edges", []),
+                "graph_neighbors": block.metadata.get("graph_neighbors", []),
+                "parser_block_id": block.metadata.get("parser_block_id"),
+                "parser_source": block.metadata.get("parser_source"),
             }
             title = block.section_path[0] if block.section_path else base_title
             page_value = str(block.page_number) if block.page_number is not None else None
             page_or_section = block.page_label or page_value or (block.section_path[-1] if block.section_path else None)
             documents.append(
                 NormalizedDocument(
-                    doc_id=doc_id,
-                    source_type=source_type,
+                    doc_id=structured_document.doc_id,
+                    source_type=structured_document.source_type,
                     source_name=source_name,
                     source_uri_or_path=source_uri_or_path,
                     page_or_section=page_or_section,
                     page=page_value,
                     title=title,
                     section_path=list(block.section_path),
-                    doc_type=source_type,
+                    doc_type=structured_document.source_type,
                     updated_at=updated_at,
                     content=block.text,
                     metadata=metadata,
@@ -209,12 +192,10 @@ class DocumentLoaderRouter:
         metadata_title = metadata.get("title")
         if metadata_title:
             return str(metadata_title).strip()
-
         for line in content.splitlines():
             stripped = line.strip()
             if stripped.startswith("#"):
                 return stripped.lstrip("#").strip()
-
         source_path = Path(source_name)
         return source_path.stem if source_path.suffix else source_name
 
@@ -264,6 +245,8 @@ class DocumentLoaderRouter:
             "preserve_structure",
             "preserve_page_markers",
             "reading_order_from_parser",
+            "layout_role_classification",
+            "graph_relationship_projection",
         ]
         if parser_metadata.get("cleaning_path") == "ocr_fallback":
             rules.append("ocr_fallback")

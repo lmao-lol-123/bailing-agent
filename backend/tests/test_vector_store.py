@@ -170,3 +170,64 @@ def test_vector_store_applies_metadata_filter_and_reranks(monkeypatch, fake_embe
     )
 
     assert [document.metadata["doc_id"] for document in results] == ["doc-markdown", "doc-weak"]
+
+
+def test_vector_store_replaces_child_hit_with_parent_content_and_deduplicates(monkeypatch, fake_embeddings) -> None:
+    case_dir = make_case_dir("vector-store-parent-child")
+    settings = Settings(
+        uploads_directory=case_dir / "uploads",
+        processed_directory=case_dir / "processed",
+        faiss_index_directory=case_dir / "faiss",
+        rerank_candidate_multiplier=4,
+    )
+    settings.ensure_directories()
+    store = VectorStoreService(settings=settings, embeddings=fake_embeddings)
+
+    child_one = Document(
+        page_content="child content one FastAPI",
+        metadata={
+            "doc_id": "doc-parent",
+            "source_name": "guide.md",
+            "source_type": "markdown",
+            "source_uri_or_path": "guide.md",
+            "section_path": ["Guide"],
+            "doc_type": "markdown",
+            "page": "1",
+            "chunk_id": "child-1",
+            "chunk_level": "child",
+            "parent_chunk_id": "parent-1",
+            "parent_content": "full parent content with FastAPI and SSE details",
+            "child_content": "child content one FastAPI",
+        },
+    )
+    child_two = Document(
+        page_content="child content two SSE",
+        metadata={
+            "doc_id": "doc-parent",
+            "source_name": "guide.md",
+            "source_type": "markdown",
+            "source_uri_or_path": "guide.md",
+            "section_path": ["Guide"],
+            "doc_type": "markdown",
+            "page": "1",
+            "chunk_id": "child-2",
+            "chunk_level": "child",
+            "parent_chunk_id": "parent-1",
+            "parent_content": "full parent content with FastAPI and SSE details",
+            "child_content": "child content two SSE",
+        },
+    )
+
+    monkeypatch.setattr(
+        store._vector_store,
+        "similarity_search_with_score",
+        lambda query, k, **kwargs: [(child_one, 0.2), (child_two, 0.2)],
+    )
+
+    results = store.similarity_search("FastAPI SSE", k=2)
+
+    assert len(results) == 1
+    assert results[0].page_content == "full parent content with FastAPI and SSE details"
+    assert results[0].metadata["matched_child_ids"] == ["child-1", "child-2"]
+    assert results[0].metadata["matched_child_count"] == 2
+    assert results[0].metadata["child_content"] == "child content one FastAPI"

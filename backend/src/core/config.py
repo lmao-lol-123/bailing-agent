@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     uploads_directory: Path = Path("data/uploads")
     processed_directory: Path = Path("data/processed")
     faiss_index_directory: Path = Path("storage/faiss")
+    index_state_directory: Path = Path("storage/index")
+    index_name: str = "default"
     chat_history_db_path: Path = Path("storage/chat_history.sqlite3")
 
     retriever_top_k: int = Field(default=4, ge=1, le=50)
@@ -47,6 +49,7 @@ class Settings(BaseSettings):
             self.uploads_directory,
             self.processed_directory,
             self.faiss_index_directory,
+            self.index_state_directory,
             self.chat_history_db_path.parent,
         ):
             directory.mkdir(parents=True, exist_ok=True)
@@ -57,4 +60,5 @@ def get_settings() -> Settings:
     settings = Settings()
     settings.ensure_directories()
     return settings
+
 

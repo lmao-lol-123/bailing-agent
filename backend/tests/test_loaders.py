@@ -122,3 +122,24 @@ def test_pdf_falls_back_to_mineru_when_requested(monkeypatch) -> None:
     assert used_mineru is True
     assert all(document.metadata["loader"] == "mineru" for document in documents)
     assert all(document.metadata["cleaning_path"] == "ocr_fallback" for document in documents)
+
+
+def test_loader_generates_stable_doc_id_for_same_file() -> None:
+    case_dir = make_case_dir("stable-doc-id")
+    text_path = case_dir / "notes.txt"
+    text_path.write_text("hello engineering rag", encoding="utf-8")
+
+    settings = Settings(
+        uploads_directory=case_dir / "uploads",
+        processed_directory=case_dir / "processed",
+        faiss_index_directory=case_dir / "faiss",
+        index_state_directory=case_dir / "index",
+    )
+    settings.ensure_directories()
+    router = DocumentLoaderRouter(settings)
+
+    first_documents, _ = router.load_file(text_path)
+    second_documents, _ = router.load_file(text_path)
+
+    assert first_documents[0].doc_id == second_documents[0].doc_id
+    assert first_documents[0].doc_id.startswith("doc-")

@@ -62,6 +62,12 @@ class JsonParentStore:
                 return ParentRecord.from_dict(raw_record)
         return None
 
+
+    def delete_records(self, doc_id: str) -> None:
+        path = self._path_for_doc(doc_id)
+        if path.exists():
+            path.unlink()
     def _path_for_doc(self, doc_id: str) -> Path:
         safe_doc_id = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in doc_id)
         return self._parents_directory / f"{safe_doc_id}.parents.json"
+

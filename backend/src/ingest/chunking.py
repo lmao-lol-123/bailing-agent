@@ -5,7 +5,6 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
-from uuid import uuid4
 
 from langchain_core.documents import Document
 from langchain_experimental.text_splitter import SemanticChunker
@@ -362,8 +361,8 @@ class StructureAwareChunkingService:
         child_index: int,
         child_count: int,
     ) -> IngestedChunk:
-        chunk_id = str(uuid4())
         child_text = child_split.text
+        chunk_id = self._build_child_chunk_id(document=document, source_block=source_block, parent_chunk_id=str(parent_metadata["parent_chunk_id"]), child_index=child_index, child_text=child_text)
         retrieval_text, retrieval_strategy = self._build_retrieval_text(source_block=source_block, child_text=child_text, assembly=assembly)
         metadata = {
             **document.metadata,
@@ -471,6 +470,20 @@ class StructureAwareChunkingService:
         raw_value = f"{document.doc_id}:{':'.join(assembly.source_block_ids)}:parent"
         digest = hashlib.sha1(raw_value.encode("utf-8")).hexdigest()[:16]
         return f"parent-{digest}"
+
+    def _build_child_chunk_id(
+        self,
+        *,
+        document: NormalizedDocument,
+        source_block: _ChunkSourceBlock,
+        parent_chunk_id: str,
+        child_index: int,
+        child_text: str,
+    ) -> str:
+        child_hash = hashlib.sha1(child_text.encode("utf-8")).hexdigest()[:12]
+        raw_value = f"{document.doc_id}:{source_block.source_block_id}:{parent_chunk_id}:{child_index}:{child_hash}"
+        digest = hashlib.sha1(raw_value.encode("utf-8")).hexdigest()[:20]
+        return f"chunk-{digest}"
 
     def _fallback_block_id(self, *, document: NormalizedDocument, block_order: int) -> str:
         page = document.page or document.page_or_section or "none"
@@ -726,6 +739,7 @@ class StructureAwareChunkingService:
 
 
 SemanticChunkingService = StructureAwareChunkingService
+
 
 
 

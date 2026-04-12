@@ -444,3 +444,25 @@ def test_enhanced_retrieval_text_for_table_image_and_formula_keeps_original_chil
     assert "E equals m c squared" in formula_chunk.content
     assert "Symbols: =, ^" in formula_chunk.content
     assert all(chunk.metadata["content_role"] == "retrieval_text" for chunk in [table_chunk, image_chunk, formula_chunk])
+
+
+def test_chunking_generates_stable_child_chunk_ids(fake_embeddings) -> None:
+    settings = Settings(chunk_max_word_pieces=64, chunk_overlap_word_pieces=8)
+    service = StructureAwareChunkingService(settings=settings, embeddings=fake_embeddings)
+    documents = [
+        NormalizedDocument(
+            doc_id="doc-stable-chunk",
+            source_type=SourceType.TXT,
+            source_name="notes.txt",
+            source_uri_or_path="notes.txt",
+            title="Notes",
+            content="stable chunk content for indexing",
+            metadata={"block_id": "block-stable", "block_type": "paragraph", "layout_role": "body"},
+        )
+    ]
+
+    first = service.chunk_documents(documents)
+    second = service.chunk_documents(documents)
+
+    assert [chunk.chunk_id for chunk in first] == [chunk.chunk_id for chunk in second]
+    assert [chunk.metadata["parent_chunk_id"] for chunk in first] == [chunk.metadata["parent_chunk_id"] for chunk in second]

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import re
 from collections import defaultdict
@@ -20,7 +20,11 @@ class VectorStoreService:
         self._settings = settings
         self._embeddings = embeddings
         self._index_path = settings.faiss_index_directory / "default_index"
+        self._index_manager = None
         self._vector_store = self._load_or_create_store()
+
+    def set_index_manager(self, index_manager: object) -> None:
+        self._index_manager = index_manager
 
     def _load_or_create_store(self) -> FAISS:
         if self._index_path.exists():
@@ -29,7 +33,11 @@ class VectorStoreService:
                 embeddings=self._embeddings,
                 allow_dangerous_deserialization=True,
             )
+        store = self._create_empty_store()
+        self._save(store)
+        return store
 
+    def _create_empty_store(self) -> FAISS:
         bootstrap = Document(
             page_content="FAISS bootstrap document",
             metadata={
@@ -48,7 +56,6 @@ class VectorStoreService:
         )
         store = FAISS.from_documents([bootstrap], self._embeddings)
         store.delete(ids=["__bootstrap__"])
-        self._save(store)
         return store
 
     def _save(self, store: FAISS | None = None) -> None:
@@ -59,13 +66,27 @@ class VectorStoreService:
     def add_chunks(self, chunks: list[IngestedChunk]) -> None:
         if not chunks:
             return
-
-        documents = [
-            Document(page_content=chunk.content, metadata=chunk.metadata, id=chunk.chunk_id)
-            for chunk in chunks
-        ]
+        documents = [Document(page_content=chunk.content, metadata=chunk.metadata, id=chunk.chunk_id) for chunk in chunks]
         ids = [chunk.chunk_id for chunk in chunks]
+        self.add_documents(documents=documents, ids=ids)
+
+    def add_documents(self, documents: list[Document], ids: list[str]) -> None:
+        if not documents:
+            return
         self._vector_store.add_documents(documents=documents, ids=ids)
+        self._save()
+
+    def delete_ids(self, ids: list[str]) -> None:
+        if not ids:
+            return
+        self._vector_store.delete(ids=ids)
+        self._save()
+
+    def rebuild_documents(self, documents: list[Document], ids: list[str]) -> None:
+        rebuilt_store = self._create_empty_store()
+        if documents:
+            rebuilt_store.add_documents(documents=documents, ids=ids)
+        self._vector_store = rebuilt_store
         self._save()
 
     def similarity_search(
@@ -132,9 +153,12 @@ class VectorStoreService:
 
         returned_documents.extend(passthrough)
         return returned_documents[:top_k]
-    def list_documents(self) -> list[DocumentSummary]:
-        metadatas = list(self._vector_store.docstore._dict.values())
 
+    def list_documents(self) -> list[DocumentSummary]:
+        if self._index_manager is not None:
+            return self._index_manager.list_documents()
+
+        metadatas = list(self._vector_store.docstore._dict.values())
         buckets: dict[str, dict[str, Any]] = defaultdict(
             lambda: {"source_name": "", "source_type": "", "source_uri_or_path": "", "count": 0, "sections": set()}
         )
@@ -316,6 +340,3 @@ class VectorStoreService:
     @staticmethod
     def _tokenize(text: str) -> set[str]:
         return {token.lower() for token in _TOKEN_PATTERN.findall(text)}
-
-
-

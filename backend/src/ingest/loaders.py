@@ -1,10 +1,11 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
-from uuid import uuid4
+from urllib.parse import urlparse, urlunparse
 
 from langchain_community.document_loaders import CSVLoader, JSONLoader, TextLoader, WebBaseLoader
 from langchain_community.document_loaders.markdown import UnstructuredMarkdownLoader
@@ -17,6 +18,9 @@ from backend.src.ingest.cleaning import ParsedPage, StructuredBlock, StructuredC
 from backend.src.ingest.pdf_parser import MinerUFallbackError, PDFParsingService
 
 
+_UPLOAD_PREFIX_RE = re.compile(r"^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}-")
+
+
 class DocumentLoaderRouter:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -25,7 +29,8 @@ class DocumentLoaderRouter:
 
     def load_file(self, file_path: Path, force_mineru: bool = False) -> tuple[list[NormalizedDocument], bool]:
         suffix = file_path.suffix.lower()
-        doc_id = str(uuid4())
+        source_type = self._detect_source_type(file_path)
+        doc_id = self._build_file_doc_id(file_path=file_path, source_type=source_type)
         updated_at = self._resolve_updated_at(file_path)
 
         if suffix == ".pdf":
@@ -50,7 +55,6 @@ class DocumentLoaderRouter:
             return normalized_documents, used_mineru
 
         loader = self._build_file_loader(file_path)
-        source_type = self._detect_source_type(file_path)
         documents = self._convert_documents(
             doc_id=doc_id,
             source_type=source_type,
@@ -62,7 +66,7 @@ class DocumentLoaderRouter:
         return documents, False
 
     def load_url(self, url: str) -> list[NormalizedDocument]:
-        doc_id = str(uuid4())
+        doc_id = self._build_url_doc_id(url)
         parsed = urlparse(url)
         source_name = parsed.netloc or "web-page"
         return self._convert_documents(
@@ -260,6 +264,29 @@ class DocumentLoaderRouter:
         except ValueError:
             return default_value
 
+    def _build_file_doc_id(self, *, file_path: Path, source_type: SourceType) -> str:
+        normalized_source = self._normalize_file_source_key(file_path)
+        return self._hash_doc_id(prefix=source_type.value, value=normalized_source)
+
+    def _build_url_doc_id(self, url: str) -> str:
+        parsed = urlparse(url)
+        normalized = urlunparse((parsed.scheme.lower(), parsed.netloc.lower(), parsed.path.rstrip("/") or "/", "", parsed.query, ""))
+        return self._hash_doc_id(prefix=SourceType.WEB.value, value=normalized)
+
+    def _hash_doc_id(self, *, prefix: str, value: str) -> str:
+        digest = hashlib.sha1(f"{prefix}:{value}".encode("utf-8")).hexdigest()[:16]
+        return f"doc-{digest}"
+
+    def _normalize_file_source_key(self, file_path: Path) -> str:
+        resolved = file_path.resolve()
+        try:
+            uploads_root = self._settings.uploads_directory.resolve()
+            if uploads_root in resolved.parents:
+                return _UPLOAD_PREFIX_RE.sub("", resolved.name).lower()
+        except OSError:
+            pass
+        return resolved.as_posix().lower()
+
     def _resolve_updated_at(self, file_path: Path | None):
         if file_path is None:
             from datetime import datetime, timezone
@@ -277,3 +304,4 @@ def dump_normalized_documents(documents: list[NormalizedDocument], output_path: 
 
 
 __all__ = ["DocumentLoaderRouter", "MinerUFallbackError", "dump_normalized_documents"]
+

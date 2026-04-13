@@ -53,21 +53,42 @@ class JsonParentStore:
         if not self._parents_directory.exists():
             return None
         for path in self._parents_directory.glob("*.parents.json"):
-            try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
+            payload = self._read_payload(path)
+            if not payload:
                 continue
             raw_record = payload.get(parent_chunk_id)
             if isinstance(raw_record, dict):
                 return ParentRecord.from_dict(raw_record)
         return None
 
+    def load_by_ref(self, parent_store_ref: str) -> ParentRecord | None:
+        if not parent_store_ref or ":" not in parent_store_ref:
+            return None
+        doc_id, parent_chunk_id = parent_store_ref.split(":", 1)
+        if not doc_id or not parent_chunk_id:
+            return None
+        payload = self._read_payload(self._path_for_doc(doc_id))
+        if not payload:
+            return None
+        raw_record = payload.get(parent_chunk_id)
+        if isinstance(raw_record, dict):
+            return ParentRecord.from_dict(raw_record)
+        return None
 
     def delete_records(self, doc_id: str) -> None:
         path = self._path_for_doc(doc_id)
         if path.exists():
             path.unlink()
+
+    def _read_payload(self, path: Path) -> dict[str, Any] | None:
+        if not path.exists():
+            return None
+        try:
+            raw_value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        return raw_value if isinstance(raw_value, dict) else None
+
     def _path_for_doc(self, doc_id: str) -> Path:
         safe_doc_id = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in doc_id)
         return self._parents_directory / f"{safe_doc_id}.parents.json"
-

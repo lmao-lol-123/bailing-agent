@@ -5,7 +5,6 @@ import json
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -32,6 +31,21 @@ class IndexWriteResult:
     skipped: bool = False
     created: bool = False
     updated: bool = False
+
+
+@dataclass(frozen=True)
+class ActiveChunkRecord:
+    chunk_id: str
+    doc_id: str
+    retrieval_text: str
+    child_content: str
+    metadata: dict[str, Any]
+    source_block_type: str | None = None
+    page: str | None = None
+    section_path: list[str] = field(default_factory=list)
+
+    def to_document(self) -> Document:
+        return Document(page_content=self.retrieval_text, metadata=dict(self.metadata), id=self.chunk_id)
 
 
 class IndexManager:
@@ -72,6 +86,28 @@ class IndexManager:
         parent_rows = self._collect_parent_rows(chunks)
         ingest_id = str(uuid4())
         with self._connect() as connection:
+            existing_parent_ids: list[str] = []
+            if existing_chunk_ids:
+                existing_parent_ids = [
+                    str(row[0])
+                    for row in connection.execute(
+                        "SELECT DISTINCT parent_chunk_id FROM index_chunks WHERE doc_id = ? AND parent_chunk_id IS NOT NULL AND chunk_status='active'",
+                        (doc_id,),
+                    ).fetchall()
+                    if row[0]
+                ]
+                placeholders = ",".join("?" for _ in existing_chunk_ids)
+                connection.execute(
+                    f"UPDATE index_chunks SET chunk_status='deleted', updated_at=?, deleted_at=? WHERE chunk_id IN ({placeholders})",
+                    (now, now, *existing_chunk_ids),
+                )
+                if existing_parent_ids:
+                    parent_placeholders = ",".join("?" for _ in existing_parent_ids)
+                    connection.execute(
+                        f"UPDATE index_parents SET parent_status='deleted', updated_at=?, deleted_at=? WHERE parent_chunk_id IN ({parent_placeholders})",
+                        (now, now, *existing_parent_ids),
+                    )
+
             connection.execute(
                 """
                 INSERT INTO index_documents (
@@ -103,22 +139,7 @@ class IndexManager:
                     now,
                 ),
             )
-            if existing_chunk_ids:
-                placeholders = ",".join("?" for _ in existing_chunk_ids)
-                connection.execute(
-                    f"UPDATE index_chunks SET chunk_status='deleted', updated_at=?, deleted_at=? WHERE chunk_id IN ({placeholders})",
-                    (now, now, *existing_chunk_ids),
-                )
-                existing_parent_ids = list(dict.fromkeys(row[0] for row in connection.execute(
-                    "SELECT DISTINCT parent_chunk_id FROM index_chunks WHERE doc_id = ? AND parent_chunk_id IS NOT NULL",
-                    (doc_id,),
-                ).fetchall() if row[0]))
-                if existing_parent_ids:
-                    parent_placeholders = ",".join("?" for _ in existing_parent_ids)
-                    connection.execute(
-                        f"UPDATE index_parents SET parent_status='deleted', updated_at=?, deleted_at=? WHERE parent_chunk_id IN ({parent_placeholders})",
-                        (now, now, *existing_parent_ids),
-                    )
+
             for chunk in chunks:
                 metadata_json = json.dumps(chunk.metadata, ensure_ascii=False, sort_keys=True)
                 section_path_json = json.dumps(chunk.section_path, ensure_ascii=False)
@@ -170,6 +191,7 @@ class IndexManager:
                         now,
                     ),
                 )
+
             for parent_row in parent_rows:
                 connection.execute(
                     """
@@ -196,6 +218,7 @@ class IndexManager:
                         now,
                     ),
                 )
+
             connection.execute(
                 "INSERT INTO ingest_runs (ingest_id, doc_id, run_type, chunk_count, started_at, completed_at, status, schema_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (ingest_id, doc_id, "update" if existing_doc else "append", len(chunks), now, now, "completed", _INDEX_SCHEMA_VERSION),
@@ -263,7 +286,20 @@ class IndexManager:
                     "SELECT page, page_or_section, section_path_json FROM index_chunks WHERE doc_id=? AND chunk_status='active'",
                     (row["doc_id"],),
                 ).fetchall()
-                locations = sorted({self._format_location(page=row["page"], page_or_section=row["page_or_section"], section_path_json=row["section_path_json"]) for row in chunk_rows if self._format_location(page=row["page"], page_or_section=row["page_or_section"], section_path_json=row["section_path_json"])})
+                locations = sorted(
+                    {
+                        location
+                        for chunk_row in chunk_rows
+                        for location in [
+                            self._format_location(
+                                page=chunk_row["page"],
+                                page_or_section=chunk_row["page_or_section"],
+                                section_path_json=chunk_row["section_path_json"],
+                            )
+                        ]
+                        if location
+                    }
+                )
                 summaries.append(
                     DocumentSummary(
                         doc_id=str(row["doc_id"]),
@@ -278,13 +314,33 @@ class IndexManager:
 
     def get_active_chunk_ids(self, doc_id: str) -> list[str]:
         with self._connect() as connection:
-            return [
-                str(row[0])
-                for row in connection.execute(
-                    "SELECT chunk_id FROM index_chunks WHERE doc_id=? AND chunk_status='active' ORDER BY chunk_id ASC",
-                    (doc_id,),
-                ).fetchall()
-            ]
+            rows = connection.execute(
+                "SELECT chunk_id FROM index_chunks WHERE doc_id=? AND chunk_status='active' ORDER BY chunk_id ASC",
+                (doc_id,),
+            ).fetchall()
+        return [str(row[0]) for row in rows]
+
+    def list_active_chunk_records(self) -> list[ActiveChunkRecord]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT chunk_id, doc_id, retrieval_text, child_content, metadata_json, source_block_type, page, section_path_json FROM index_chunks WHERE chunk_status='active' ORDER BY doc_id ASC, chunk_id ASC"
+            ).fetchall()
+        records: list[ActiveChunkRecord] = []
+        for row in rows:
+            metadata = json.loads(str(row["metadata_json"]))
+            records.append(
+                ActiveChunkRecord(
+                    chunk_id=str(row["chunk_id"]),
+                    doc_id=str(row["doc_id"]),
+                    retrieval_text=str(row["retrieval_text"]),
+                    child_content=str(row["child_content"] or ""),
+                    metadata=metadata,
+                    source_block_type=str(row["source_block_type"]) if row["source_block_type"] else None,
+                    page=str(row["page"]) if row["page"] is not None else None,
+                    section_path=self._decode_section_path(row["section_path_json"]),
+                )
+            )
+        return records
 
     def get_manifest(self) -> dict[str, Any]:
         if not self._manifest_path.exists():
@@ -323,7 +379,15 @@ class IndexManager:
 
     def _build_content_fingerprint(self, chunks: list[IngestedChunk]) -> str:
         normalized_items = []
-        for chunk in sorted(chunks, key=lambda item: (str(item.metadata.get("source_block_id") or ""), int(item.metadata.get("child_index") or 0), item.page or "", item.content)):
+        for chunk in sorted(
+            chunks,
+            key=lambda item: (
+                str(item.metadata.get("source_block_id") or ""),
+                int(item.metadata.get("child_index") or 0),
+                item.page or "",
+                item.content,
+            ),
+        ):
             normalized_items.append(
                 json.dumps(
                     {
@@ -464,7 +528,6 @@ class IndexManager:
         vector = self._embeddings.embed_query("index manifest probe")
         return len(vector)
 
-
     def _format_location(self, *, page: str | None, page_or_section: str | None, section_path_json: str | None) -> str | None:
         section_path = self._decode_section_path(section_path_json)
         page_value = page or page_or_section
@@ -486,6 +549,7 @@ class IndexManager:
         if isinstance(value, list):
             return [str(item) for item in value if str(item).strip()]
         return []
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._db_path)
         connection.row_factory = sqlite3.Row
@@ -493,4 +557,3 @@ class IndexManager:
 
     def _utcnow(self) -> str:
         return datetime.now(timezone.utc).isoformat()
-

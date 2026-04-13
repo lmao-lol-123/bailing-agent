@@ -28,6 +28,31 @@ class Settings(BaseSettings):
     retriever_top_k: int = Field(default=4, ge=1, le=50)
     rerank_candidate_multiplier: int = Field(default=4, ge=1, le=20)
     rerank_lexical_weight: float = Field(default=0.35, ge=0.0, le=1.0)
+    hybrid_lexical_enabled: bool = True
+    hybrid_dense_k: int = Field(default=30, ge=1, le=100)
+    hybrid_lexical_k: int = Field(default=30, ge=1, le=100)
+    hybrid_fusion_top_k: int = Field(default=20, ge=1, le=100)
+    hybrid_rrf_k: int = Field(default=60, ge=1, le=200)
+    rerank_mode: str = "heuristic"
+    rerank_cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    rerank_cross_encoder_top_k: int = Field(default=20, ge=1, le=100)
+
+    query_routing_enabled: bool = True
+    query_multi_enabled: bool = True
+    query_multi_max_variants: int = Field(default=4, ge=1, le=6)
+    query_route_exploration_token_threshold: int = Field(default=5, ge=1, le=20)
+    query_route_precision_literal_ratio_threshold: float = Field(default=0.34, ge=0.0, le=1.0)
+    query_route_structure_pattern_enabled: bool = True
+
+    targeted_retrieval_enabled: bool = True
+    targeted_retry_enabled: bool = True
+    targeted_retry_max_attempts: int = Field(default=1, ge=0, le=3)
+    targeted_min_results_ratio: float = Field(default=0.75, ge=0.1, le=1.0)
+    targeted_soft_bias_weight: float = Field(default=0.06, ge=0.0, le=0.5)
+    targeted_hard_min_candidates: int = Field(default=2, ge=1, le=20)
+    targeted_retry_dense_multiplier: float = Field(default=1.5, ge=1.0, le=4.0)
+    targeted_retry_lexical_multiplier: float = Field(default=1.5, ge=1.0, le=4.0)
+
     chunk_max_word_pieces: int = Field(default=220, ge=8, le=512)
     chunk_overlap_word_pieces: int = Field(default=40, ge=0, le=128)
 
@@ -60,5 +85,3 @@ def get_settings() -> Settings:
     settings = Settings()
     settings.ensure_directories()
     return settings
-
-

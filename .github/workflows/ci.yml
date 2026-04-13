@@ -3,10 +3,12 @@ name: CI
 on:
   push:
     branches:
+      - main
       - master
       - "codex/**"
   pull_request:
     branches:
+      - main
       - master
   workflow_dispatch:
 
@@ -31,4 +33,4 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run test suite
-        run: pytest
+        run: python -m pytest -q

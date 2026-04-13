@@ -1,6 +1,6 @@
 # Engineering RAG Assistant
 
-[涓枃](./README.md) | [English](./README.en.md)
+[中文](./README.md) | [English](./README.en.md)
 
 A lightweight RAG assistant for engineering documents. The current phase is backend-first, with a strong focus on local reliability, grounded retrieval, cited answers, and stable streaming output.
 

@@ -9,6 +9,7 @@ from backend.src.core.config import Settings
 from backend.src.core.models import IngestedChunk, RetrievalFilter, SourceType
 from backend.src.ingest.parent_store import JsonParentStore, ParentRecord
 from backend.src.retrieve.index_manager import IndexManager
+from backend.src.retrieve.rerank import RetrievedCandidate
 from backend.src.retrieve.store import VectorStoreService
 
 
@@ -408,10 +409,23 @@ def test_vector_store_hybrid_retrieval_merges_dense_and_lexical_sources(monkeypa
     index_manager.index_chunks([chunk])
 
     dense_document = Document(page_content=chunk.content, metadata=dict(chunk.metadata), id=chunk.chunk_id)
+    lexical_candidate = RetrievedCandidate(
+        chunk_id=chunk.chunk_id,
+        document=Document(page_content=chunk.content, metadata=dict(chunk.metadata), id=chunk.chunk_id),
+        retrieval_sources=("lexical",),
+        lexical_rank=1,
+        lexical_score=1.0,
+        fusion_score=1.0,
+    )
     monkeypatch.setattr(
         store._vector_store,
         "similarity_search_with_score",
         lambda query, k, **kwargs: [(dense_document, 0.1)],
+    )
+    monkeypatch.setattr(
+        store._lexical_retrieval,
+        "search",
+        lambda query, k, metadata_filter=None, record_matcher=None: [lexical_candidate],
     )
 
     results = store.similarity_search("FastAPI text event stream", k=1)
@@ -457,6 +471,32 @@ def test_vector_store_hybrid_retrieval_uses_lexical_candidates_with_metadata_fil
     index_manager.index_chunks([txt_chunk])
 
     monkeypatch.setattr(store._vector_store, "similarity_search_with_score", lambda query, k, **kwargs: [])
+    markdown_candidate = RetrievedCandidate(
+        chunk_id=markdown_chunk.chunk_id,
+        document=Document(page_content=markdown_chunk.content, metadata=dict(markdown_chunk.metadata), id=markdown_chunk.chunk_id),
+        retrieval_sources=("lexical",),
+        lexical_rank=1,
+        lexical_score=1.0,
+        fusion_score=1.0,
+    )
+    txt_candidate = RetrievedCandidate(
+        chunk_id=txt_chunk.chunk_id,
+        document=Document(page_content=txt_chunk.content, metadata=dict(txt_chunk.metadata), id=txt_chunk.chunk_id),
+        retrieval_sources=("lexical",),
+        lexical_rank=2,
+        lexical_score=0.9,
+        fusion_score=0.9,
+    )
+
+    def fake_lexical_search(query, k, metadata_filter=None, record_matcher=None):
+        candidates = [markdown_candidate, txt_candidate]
+        return [
+            candidate
+            for candidate in candidates
+            if store._matches_metadata_filter(candidate.document.metadata, metadata_filter)
+        ][:k]
+
+    monkeypatch.setattr(store._lexical_retrieval, "search", fake_lexical_search)
 
     results = store.similarity_search(
         "text event stream",
@@ -466,10 +506,6 @@ def test_vector_store_hybrid_retrieval_uses_lexical_candidates_with_metadata_fil
 
     assert [document.metadata["doc_id"] for document in results] == ["doc-markdown"]
     assert "lexical" in results[0].metadata["retrieval_sources"]
-
-from backend.src.retrieve.rerank import RetrievedCandidate
-
-
 def test_vector_store_applies_precision_route_metadata(monkeypatch, fake_embeddings) -> None:
     case_dir = make_case_dir("vector-store-route-precision")
     settings = Settings(

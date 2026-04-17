@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from backend.src.core.models import SourceType
 from backend.src.ingest.cleaning import ParsedLayoutItem, ParsedPage, StructuredContentCleaner
@@ -13,10 +13,30 @@ def test_block_graph_links_formula_caption_references_and_neighbors() -> None:
         width=800,
         height=1000,
         layout_items=[
-            ParsedLayoutItem(item_type="heading", text="# Guide", bbox={"x0": 80, "y0": 60, "x1": 260, "y1": 90}, order=0),
-            ParsedLayoutItem(item_type="caption", text="Equation 1. Energy formula", bbox={"x0": 90, "y0": 120, "x1": 320, "y1": 150}, order=2),
-            ParsedLayoutItem(item_type="formula", text="$$ E = mc^2 $$", bbox={"x0": 90, "y0": 160, "x1": 360, "y1": 220}, order=1),
-            ParsedLayoutItem(item_type="paragraph", text="Equation 1 explains the energy model.", bbox={"x0": 90, "y0": 240, "x1": 520, "y1": 290}, order=3),
+            ParsedLayoutItem(
+                item_type="heading",
+                text="# Guide",
+                bbox={"x0": 80, "y0": 60, "x1": 260, "y1": 90},
+                order=0,
+            ),
+            ParsedLayoutItem(
+                item_type="caption",
+                text="Equation 1. Energy formula",
+                bbox={"x0": 90, "y0": 120, "x1": 320, "y1": 150},
+                order=2,
+            ),
+            ParsedLayoutItem(
+                item_type="formula",
+                text="$$ E = mc^2 $$",
+                bbox={"x0": 90, "y0": 160, "x1": 360, "y1": 220},
+                order=1,
+            ),
+            ParsedLayoutItem(
+                item_type="paragraph",
+                text="Equation 1 explains the energy model.",
+                bbox={"x0": 90, "y0": 240, "x1": 520, "y1": 290},
+                order=3,
+            ),
         ],
         metadata={"source_page_count": 1},
         parser_source="pymupdf4llm",
@@ -36,8 +56,14 @@ def test_block_graph_links_formula_caption_references_and_neighbors() -> None:
 
     assert formula_block.metadata["caption_text"] == "Equation 1. Energy formula"
     assert paragraph_block.metadata["references_formulas"] == ["1"]
-    assert any(edge["type"] == "formula_explains" and edge["target_block_id"] == formula_block.block_id for edge in paragraph_block.metadata["graph_edges"])
-    assert any(edge["type"] == "caption_of" and edge["target_block_id"] == formula_block.block_id for edge in caption_block.metadata["graph_edges"])
+    assert any(
+        edge["type"] == "formula_explains" and edge["target_block_id"] == formula_block.block_id
+        for edge in paragraph_block.metadata["graph_edges"]
+    )
+    assert any(
+        edge["type"] == "caption_of" and edge["target_block_id"] == formula_block.block_id
+        for edge in caption_block.metadata["graph_edges"]
+    )
     assert formula_block.block_id in paragraph_block.metadata["graph_neighbors"]
 
 
@@ -63,6 +89,18 @@ def test_non_pdf_structuring_covers_html_csv_and_json() -> None:
         text='[{"name":"top_k","value":4}]',
     )
 
-    assert {block.block_type for block in html_document.blocks} >= {"section_header", "paragraph", "image", "caption", "formula"}
-    assert any(block.block_type == "table" and "row 1: metric=top_k; value=4" in block.text.lower() for block in csv_document.blocks)
-    assert any(block.block_type == "table" and block.metadata.get("json_table") is True for block in json_document.blocks)
+    assert {block.block_type for block in html_document.blocks} >= {
+        "section_header",
+        "paragraph",
+        "image",
+        "caption",
+        "formula",
+    }
+    assert any(
+        block.block_type == "table" and "row 1: metric=top_k; value=4" in block.text.lower()
+        for block in csv_document.blocks
+    )
+    assert any(
+        block.block_type == "table" and block.metadata.get("json_table") is True
+        for block in json_document.blocks
+    )

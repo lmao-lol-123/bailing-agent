@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from backend.src.ingest.cleaning import ParsedPage, StructuredContentCleaner
 
@@ -32,7 +32,7 @@ def test_cleaner_builds_page_markers_and_links_figures_tables() -> None:
                 "1\n"
                 "# Guide\n\n"
                 "Figure 1. Request flow\n"
-                "![Architecture](images/arch.png \"System Architecture\")\n\n"
+                '![Architecture](images/arch.png "System Architecture")\n\n'
                 "As shown in Figure 1 and Table 2, the pipeline is stable.\n\n"
                 "Table 2. Runtime config\n"
                 "| Metric | Value |\n"

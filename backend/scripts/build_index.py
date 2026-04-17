@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
 from pathlib import Path
@@ -16,7 +16,11 @@ def main() -> None:
     for raw_path in args.paths:
         source_path = Path(raw_path)
         saved_path = container.ingestion_service.copy_local_file(source_path)
-        result = container.ingestion_service.ingest_saved_file(saved_path, force_mineru=args.force_mineru)
+        result = container.ingestion_service.ingest_saved_file(
+            saved_path,
+            force_mineru=args.force_mineru,
+            source_name=source_path.name,
+        )
         print(
             f"Ingested {result.source_name}: docs={result.documents_loaded}, "
             f"chunks={result.chunks_indexed}, mineru={result.used_mineru}"
@@ -25,4 +29,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 
@@ -13,20 +13,39 @@ from backend.src.core.models import (
     DocumentSummary,
     IngestResult,
     RetrievalFilter,
+    SessionFileStatus,
+    SessionFileSummary,
     SourceType,
 )
 
 
 class FakeIngestionService:
+    def __init__(self) -> None:
+        self.deleted_doc_ids: list[str] = []
+        self.deleted_session_files: list[tuple[str, str]] = []
+        self.recovered_session_files: list[tuple[str, str]] = []
+        self.deleted_sessions: list[str] = []
+
     def save_upload(self, file_name: str, payload: bytes) -> Path:
         return Path(file_name)
 
-    def ingest_saved_file(self, file_path: Path, force_mineru: bool = False) -> IngestResult:
+    def ingest_saved_file(
+        self,
+        file_path: Path,
+        force_mineru: bool = False,
+        *,
+        scope: str = "global",
+        session_id: str | None = None,
+        is_sensitive: bool | None = None,
+        mineru_mode: str | None = None,
+        source_name: str | None = None,
+        doc_id_override: str | None = None,
+    ) -> IngestResult:
         return IngestResult(
-            source_name=file_path.name,
+            source_name=source_name or file_path.name,
             source_type=SourceType.TXT,
             source_uri_or_path=str(file_path),
-            doc_id="doc-1",
+            doc_id=doc_id_override or "doc-1",
             documents_loaded=1,
             chunks_indexed=1,
         )
@@ -40,6 +59,48 @@ class FakeIngestionService:
             documents_loaded=1,
             chunks_indexed=1,
         )
+
+    def ingest_session_upload(
+        self,
+        *,
+        session_id: str,
+        file_name: str,
+        payload: bytes,
+        force_mineru: bool = False,
+        is_sensitive: bool | None = None,
+        mineru_mode: str | None = None,
+    ) -> SessionFileSummary:
+        return SessionFileSummary(
+            file_id="file-1",
+            session_id=session_id,
+            doc_id="doc-session",
+            source_name=file_name,
+            source_uri_or_path=file_name,
+            doc_type=SourceType.TXT,
+            status=SessionFileStatus.INDEXED,
+        )
+
+    def delete_documents(self, doc_ids: list[str]) -> None:
+        self.deleted_doc_ids.extend(doc_ids)
+
+    def delete_session(self, *, session_id: str) -> None:
+        self.deleted_sessions.append(session_id)
+
+    def delete_session_file(self, *, session_id: str, file_id: str) -> SessionFileSummary | None:
+        self.deleted_session_files.append((session_id, file_id))
+        return SessionFileSummary(
+            file_id=file_id,
+            session_id=session_id,
+            doc_id="doc-session",
+            source_name="notes.txt",
+            source_uri_or_path="notes.txt",
+            doc_type=SourceType.TXT,
+            status=SessionFileStatus.INDEXED,
+        )
+
+    def recover_session_file_deletion(self, *, session_id: str, file_id: str) -> str:
+        self.recovered_session_files.append((session_id, file_id))
+        return "already_deleted"
 
 
 class FakeVectorStore:
@@ -61,6 +122,17 @@ class FakeChatHistoryStore:
         self.created_session_ids: list[str] = []
         self.renamed_sessions: list[tuple[str, str]] = []
         self.deleted_sessions: list[str] = []
+        self.session_files = [
+            SessionFileSummary(
+                file_id="file-1",
+                session_id="session-cookie",
+                doc_id="doc-session",
+                source_name="notes.txt",
+                source_uri_or_path="notes.txt",
+                doc_type=SourceType.TXT,
+                status=SessionFileStatus.INDEXED,
+            )
+        ]
 
     def ensure_session(self, session_id: str | None) -> str:
         resolved = session_id or "session-cookie"
@@ -70,8 +142,9 @@ class FakeChatHistoryStore:
     def rename_session(self, session_id: str, title: str) -> None:
         self.renamed_sessions.append((session_id, title))
 
-    def delete_session(self, session_id: str) -> None:
+    def delete_session(self, session_id: str) -> list[SessionFileSummary]:
         self.deleted_sessions.append(session_id)
+        return [item for item in self.session_files if item.session_id == session_id]
 
     def list_messages(self, session_id: str, limit: int | None = None) -> list[ChatMessage]:
         return [
@@ -90,6 +163,9 @@ class FakeChatHistoryStore:
                 message_count=1,
             )
         ]
+
+    def list_session_files(self, session_id: str) -> list[SessionFileSummary]:
+        return [item for item in self.session_files if item.session_id == session_id]
 
 
 class FakeAnswerService:
@@ -140,6 +216,15 @@ def test_api_endpoints() -> None:
     sessions_response = client.get("/sessions")
     rename_response = client.patch("/sessions/session-cookie", json={"title": "Renamed"})
     history_response = client.get("/sessions/session-cookie/messages")
+    session_files_response = client.get("/sessions/session-cookie/files")
+    session_file_upload_response = client.post(
+        "/sessions/session-cookie/files",
+        files={"file": ("notes.txt", b"hello session", "text/plain")},
+    )
+    session_file_delete_response = client.delete("/sessions/session-cookie/files/file-1")
+    session_file_recover_response = client.post(
+        "/sessions/session-cookie/files/file-1/recover-delete"
+    )
     delete_response = client.delete("/sessions/session-cookie")
 
     assert frontend_response.status_code == 200
@@ -160,8 +245,20 @@ def test_api_endpoints() -> None:
         RetrievalFilter(doc_types=[SourceType.MARKDOWN]),
     )
     assert history_response.json()["messages"][0]["session_id"] == "session-cookie"
+    assert session_files_response.json()["files"][0]["file_id"] == "file-1"
+    assert session_files_response.json()["files"][0]["status"] == "indexed"
+    assert session_file_upload_response.json()["doc_id"] == "doc-session"
+    assert session_file_upload_response.json()["status"] == "indexed"
+    assert session_file_delete_response.json()["status"] == "ok"
+    assert session_file_recover_response.json()["status"] == "already_deleted"
+    assert fake_container.ingestion_service.deleted_session_files == [("session-cookie", "file-1")]
+    assert fake_container.ingestion_service.recovered_session_files == [
+        ("session-cookie", "file-1")
+    ]
     assert delete_response.json()["status"] == "ok"
-    assert fake_container.chat_history_store.deleted_sessions == ["session-cookie"]
+    assert fake_container.chat_history_store.deleted_sessions == []
+    assert fake_container.ingestion_service.deleted_sessions == ["session-cookie"]
+    assert fake_container.ingestion_service.deleted_doc_ids == []
 
     follow_up_response = client.post("/ask/stream", json={"question": "follow up"})
 

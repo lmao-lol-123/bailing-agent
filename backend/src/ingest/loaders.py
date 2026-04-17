@@ -14,9 +14,11 @@ from langchain_core.documents import Document
 
 from backend.src.core.config import Settings
 from backend.src.core.models import NormalizedDocument, SourceType
-from backend.src.ingest.cleaning import ParsedPage, StructuredBlock, StructuredContentCleaner, StructuredDocument
+from backend.src.ingest.cleaning import (
+    StructuredContentCleaner,
+    StructuredDocument,
+)
 from backend.src.ingest.pdf_parser import MinerUFallbackError, PDFParsingService
-
 
 _UPLOAD_PREFIX_RE = re.compile(r"^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}-")
 
@@ -27,30 +29,45 @@ class DocumentLoaderRouter:
         self._cleaner = StructuredContentCleaner()
         self._pdf_parser = PDFParsingService(settings)
 
-    def load_file(self, file_path: Path, force_mineru: bool = False) -> tuple[list[NormalizedDocument], bool]:
+    def load_file(
+        self,
+        file_path: Path,
+        force_mineru: bool = False,
+        *,
+        is_sensitive: bool | None = None,
+        mineru_mode: str | None = None,
+        source_name: str | None = None,
+        doc_id_override: str | None = None,
+    ) -> tuple[list[NormalizedDocument], bool]:
         suffix = file_path.suffix.lower()
         source_type = self._detect_source_type(file_path)
-        doc_id = self._build_file_doc_id(file_path=file_path, source_type=source_type)
+        resolved_source_name = source_name or file_path.name
+        doc_id = doc_id_override or self._build_file_doc_id(file_path=file_path, source_type=source_type)
         updated_at = self._resolve_updated_at(file_path)
 
         if suffix == ".pdf":
-            pages, used_mineru, parser_metadata = self._pdf_parser.parse_pdf(file_path=file_path, force_mineru=force_mineru)
+            pages, used_mineru, parser_metadata = self._pdf_parser.parse_pdf(
+                file_path=file_path,
+                force_mineru=force_mineru,
+                is_sensitive=is_sensitive,
+                mineru_mode=mineru_mode,
+            )
             structured_document = self._cleaner.build_document_from_pages(
                 doc_id=doc_id,
                 source_type=SourceType.PDF,
-                title=file_path.stem,
+                title=Path(resolved_source_name).stem,
                 pages=pages,
                 include_page_markers=True,
             )
             normalized_documents = self._build_documents_from_structured_document(
                 structured_document=structured_document,
-                source_name=file_path.name,
+                source_name=resolved_source_name,
                 source_uri_or_path=str(file_path),
                 updated_at=updated_at,
                 base_metadata=parser_metadata,
                 cleaning_rules_applied=self._build_pdf_cleaning_rules(parser_metadata),
                 fallback_used=used_mineru,
-                base_title=file_path.stem,
+                base_title=Path(resolved_source_name).stem,
             )
             return normalized_documents, used_mineru
 
@@ -58,7 +75,7 @@ class DocumentLoaderRouter:
         documents = self._convert_documents(
             doc_id=doc_id,
             source_type=source_type,
-            source_name=file_path.name,
+            source_name=resolved_source_name,
             source_uri_or_path=str(file_path),
             updated_at=updated_at,
             documents=loader.load(),
@@ -106,7 +123,9 @@ class DocumentLoaderRouter:
         for index, document in enumerate(documents, start=1):
             metadata = dict(document.metadata or {})
             raw_text = document.page_content or ""
-            title = self._extract_title(source_name=source_name, metadata=metadata, content=raw_text)
+            title = self._extract_title(
+                source_name=source_name, metadata=metadata, content=raw_text
+            )
             page_or_section = self._extract_page_or_section(metadata, index)
             page = self._extract_page(metadata, page_or_section)
             block_page = self._coerce_page_number(page, index)
@@ -126,7 +145,12 @@ class DocumentLoaderRouter:
                     source_name=source_name,
                     source_uri_or_path=source_uri_or_path,
                     updated_at=updated_at,
-                    base_metadata=metadata | {"loader": self._detect_loader_name(source_type), "cleaning_path": "non_pdf", "source_page_count": 1},
+                    base_metadata=metadata
+                    | {
+                        "loader": self._detect_loader_name(source_type),
+                        "cleaning_path": "non_pdf",
+                        "source_page_count": 1,
+                    },
                     cleaning_rules_applied=cleaning_rules,
                     fallback_used=False,
                     base_title=title,
@@ -146,7 +170,11 @@ class DocumentLoaderRouter:
         fallback_used: bool,
         base_title: str | None,
     ) -> list[NormalizedDocument]:
-        excluded_block_ids = [block.block_id for block in structured_document.blocks if block.metadata.get("excluded_from_body")]
+        excluded_block_ids = [
+            block.block_id
+            for block in structured_document.blocks
+            if block.metadata.get("excluded_from_body")
+        ]
         documents: list[NormalizedDocument] = []
         for block in structured_document.blocks:
             metadata = {
@@ -173,7 +201,11 @@ class DocumentLoaderRouter:
             }
             title = block.section_path[0] if block.section_path else base_title
             page_value = str(block.page_number) if block.page_number is not None else None
-            page_or_section = block.page_label or page_value or (block.section_path[-1] if block.section_path else None)
+            page_or_section = (
+                block.page_label
+                or page_value
+                or (block.section_path[-1] if block.section_path else None)
+            )
             documents.append(
                 NormalizedDocument(
                     doc_id=structured_document.doc_id,
@@ -270,7 +302,16 @@ class DocumentLoaderRouter:
 
     def _build_url_doc_id(self, url: str) -> str:
         parsed = urlparse(url)
-        normalized = urlunparse((parsed.scheme.lower(), parsed.netloc.lower(), parsed.path.rstrip("/") or "/", "", parsed.query, ""))
+        normalized = urlunparse(
+            (
+                parsed.scheme.lower(),
+                parsed.netloc.lower(),
+                parsed.path.rstrip("/") or "/",
+                "",
+                parsed.query,
+                "",
+            )
+        )
         return self._hash_doc_id(prefix=SourceType.WEB.value, value=normalized)
 
     def _hash_doc_id(self, *, prefix: str, value: str) -> str:
@@ -281,6 +322,9 @@ class DocumentLoaderRouter:
         resolved = file_path.resolve()
         try:
             uploads_root = self._settings.uploads_directory.resolve()
+            object_root = (uploads_root / "objects").resolve()
+            if object_root in resolved.parents:
+                return resolved.relative_to(uploads_root).as_posix().lower()
             if uploads_root in resolved.parents:
                 return _UPLOAD_PREFIX_RE.sub("", resolved.name).lower()
         except OSError:
@@ -298,10 +342,47 @@ class DocumentLoaderRouter:
 
 
 def dump_normalized_documents(documents: list[NormalizedDocument], output_path: Path) -> None:
-    serialized = [document.model_dump(mode="json") for document in documents]
+    serialized = [_to_json_safe(document.model_dump(mode="python")) for document in documents]
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(serialized, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 __all__ = ["DocumentLoaderRouter", "MinerUFallbackError", "dump_normalized_documents"]
 
+
+def _to_json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(key): _to_json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_to_json_safe(item) for item in value]
+    if isinstance(value, Path):
+        return str(value)
+
+    # pymupdf geometry objects (e.g., Rect, Point, IRect) are not JSON serializable.
+    if all(hasattr(value, attr) for attr in ("x0", "y0", "x1", "y1")):
+        try:
+            return {
+                "x0": float(getattr(value, "x0")),
+                "y0": float(getattr(value, "y0")),
+                "x1": float(getattr(value, "x1")),
+                "y1": float(getattr(value, "y1")),
+            }
+        except (TypeError, ValueError):
+            return str(value)
+
+    if all(hasattr(value, attr) for attr in ("x", "y")):
+        try:
+            return {"x": float(getattr(value, "x")), "y": float(getattr(value, "y"))}
+        except (TypeError, ValueError):
+            return str(value)
+
+    isoformat = getattr(value, "isoformat", None)
+    if callable(isoformat):
+        try:
+            return isoformat()
+        except TypeError:
+            pass
+
+    return str(value)

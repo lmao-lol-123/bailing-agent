@@ -41,7 +41,11 @@ def test_query_expander_generates_explained_structure_variants() -> None:
 
     variants = expander.expand(query=query, analysis=analysis, decision=decision)
 
-    assert [variant.variant_id for variant in variants] == ["original", "keyword_focused", "clarified"]
+    assert [variant.variant_id for variant in variants] == [
+        "original",
+        "keyword_focused",
+        "clarified",
+    ]
     assert variants[0].text == query
 
 
@@ -70,3 +74,17 @@ def test_query_expander_builds_retry_keyword_variant() -> None:
     assert variant is not None
     assert variant.variant_id == "retry_keyword"
     assert "Figure" in variant.text
+
+
+def test_query_expander_generates_regulation_variants() -> None:
+    settings = Settings(query_multi_enabled=True, query_multi_max_variants=4)
+    router = QueryRouter(settings)
+    expander = DeterministicQueryExpander(settings)
+    query = "本规范适用于哪些内容的检测与评价？"
+    analysis = router.analyze(query)
+    decision = router.route(query, requested_top_k=4)
+
+    variants = expander.expand(query=query, analysis=analysis, decision=decision)
+
+    assert [variant.variant_id for variant in variants] == ["original", "keyword_focused"]
+    assert "适用" in variants[1].text

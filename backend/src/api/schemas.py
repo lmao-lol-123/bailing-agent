@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pydantic import BaseModel, Field, HttpUrl
 
@@ -8,6 +8,7 @@ from backend.src.core.models import (
     DocumentSummary,
     IngestResult,
     RetrievalFilter,
+    SessionFileSummary,
 )
 
 
@@ -45,3 +46,8 @@ class ChatHistoryResponse(BaseModel):
 
 class ChatSessionListResponse(BaseModel):
     sessions: list[ChatSessionSummary]
+
+
+class SessionFileListResponse(BaseModel):
+    session_id: str
+    files: list[SessionFileSummary]

@@ -7,11 +7,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from langchain_core.documents import Document
-from langchain_experimental.text_splitter import SemanticChunker
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from backend.src.core.config import Settings
 from backend.src.core.models import IngestedChunk, NormalizedDocument
+from backend.src.core.text import extract_regulation_anchors
 from backend.src.ingest.parent_store import JsonParentStore, ParentRecord
 
 _TOKEN_PATTERN = re.compile(r"[\w\u4e00-\u9fff]+", re.UNICODE)
@@ -34,6 +34,11 @@ _PARENT_RELATION_TYPES = {
 }
 _MAX_RELATED_PARENT_BLOCKS = 3
 _PARENT_WORDPIECE_MULTIPLIER = 4
+
+try:
+    from langchain_experimental.text_splitter import SemanticChunker  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    SemanticChunker = None  # type: ignore
 
 
 @dataclass(frozen=True)
@@ -78,18 +83,28 @@ class _ParentAssembly:
 class _ChunkAssemblyContext:
     def __init__(self, entries: list[_SourceEntry]) -> None:
         self.entries = entries
-        self._blocks_by_key = {(entry.source_block.doc_id, entry.source_block.source_block_id): entry.source_block for entry in entries}
+        self._blocks_by_key = {
+            (entry.source_block.doc_id, entry.source_block.source_block_id): entry.source_block
+            for entry in entries
+        }
 
     def get_block(self, *, doc_id: str, block_id: str) -> _ChunkSourceBlock | None:
         return self._blocks_by_key.get((doc_id, block_id))
 
 
 class StructureAwareChunkingService:
-    def __init__(self, settings: Settings, embeddings: object, persist_parent_store: bool = False) -> None:
+    def __init__(
+        self, settings: Settings, embeddings: object, persist_parent_store: bool = False
+    ) -> None:
         self._settings = settings
         self._embeddings = embeddings
-        self._parent_store = JsonParentStore(settings.processed_directory) if persist_parent_store else None
-        model_max_length = int(getattr(embeddings, "max_seq_length", settings.chunk_max_word_pieces) or settings.chunk_max_word_pieces)
+        self._parent_store = (
+            JsonParentStore(settings.processed_directory) if persist_parent_store else None
+        )
+        model_max_length = int(
+            getattr(embeddings, "max_seq_length", settings.chunk_max_word_pieces)
+            or settings.chunk_max_word_pieces
+        )
         self._chunk_max_word_pieces = min(settings.chunk_max_word_pieces, model_max_length)
         self._chunk_overlap_word_pieces = min(
             settings.chunk_overlap_word_pieces,
@@ -104,7 +119,12 @@ class StructureAwareChunkingService:
 
     def chunk_documents(self, documents: Iterable[NormalizedDocument]) -> list[IngestedChunk]:
         entries = [
-            _SourceEntry(document=document, source_block=self._build_source_block(document=document, fallback_order=fallback_order))
+            _SourceEntry(
+                document=document,
+                source_block=self._build_source_block(
+                    document=document, fallback_order=fallback_order
+                ),
+            )
             for fallback_order, document in enumerate(documents)
         ]
         context = _ChunkAssemblyContext(entries)
@@ -117,22 +137,30 @@ class StructureAwareChunkingService:
             if self._should_skip_source_block(source_block):
                 continue
 
-            child_splits = [child_split for child_split in self._split_parent_to_children(source_block) if child_split.text.strip()]
+            child_splits = [
+                child_split
+                for child_split in self._split_parent_to_children(source_block)
+                if child_split.text.strip()
+            ]
             if not child_splits:
                 continue
 
             assembly = self._assemble_parent_for_block(source_block=source_block, context=context)
-            parent_chunk_id = self._build_assembled_parent_chunk_id(document=document, assembly=assembly)
+            parent_chunk_id = self._build_assembled_parent_chunk_id(
+                document=document, assembly=assembly
+            )
             parent_metadata = self._build_parent_metadata(
                 parent_chunk_id=parent_chunk_id,
                 source_block=source_block,
                 assembly=assembly,
                 child_count=len(child_splits),
             )
-            parent_records_by_doc.setdefault(document.doc_id, {})[parent_chunk_id] = self._build_parent_record(
-                document=document,
-                assembly=assembly,
-                parent_metadata=parent_metadata,
+            parent_records_by_doc.setdefault(document.doc_id, {})[parent_chunk_id] = (
+                self._build_parent_record(
+                    document=document,
+                    assembly=assembly,
+                    parent_metadata=parent_metadata,
+                )
             )
 
             for child_index, child_split in enumerate(child_splits):
@@ -150,19 +178,30 @@ class StructureAwareChunkingService:
 
         if self._parent_store is not None:
             for doc_id, records_by_parent_id in parent_records_by_doc.items():
-                self._parent_store.save_records(doc_id=doc_id, records=list(records_by_parent_id.values()))
+                self._parent_store.save_records(
+                    doc_id=doc_id, records=list(records_by_parent_id.values())
+                )
         return chunks
 
-    def _build_source_block(self, *, document: NormalizedDocument, fallback_order: int) -> _ChunkSourceBlock:
+    def _build_source_block(
+        self, *, document: NormalizedDocument, fallback_order: int
+    ) -> _ChunkSourceBlock:
         metadata = dict(document.metadata or {})
         block_type = str(metadata.get("block_type") or "paragraph")
         layout_role = str(metadata.get("layout_role") or "body")
-        block_order = self._coerce_int(metadata.get("block_order", metadata.get("order", fallback_order)), fallback_order)
-        section_path = list(document.section_path) or self._coerce_section_path(metadata.get("section_path"))
+        block_order = self._coerce_int(
+            metadata.get("block_order", metadata.get("order", fallback_order)), fallback_order
+        )
+        section_path = list(document.section_path) or self._coerce_section_path(
+            metadata.get("section_path")
+        )
         if not section_path:
             section_path = [document.title or document.source_name]
 
-        source_block_id = str(metadata.get("block_id") or self._fallback_block_id(document=document, block_order=block_order))
+        source_block_id = str(
+            metadata.get("block_id")
+            or self._fallback_block_id(document=document, block_order=block_order)
+        )
         normalized_metadata = {
             **metadata,
             "block_type": block_type,
@@ -194,8 +233,12 @@ class StructureAwareChunkingService:
             return True
         return bool(source_block.metadata.get("excluded_from_body"))
 
-    def _assemble_parent_for_block(self, *, source_block: _ChunkSourceBlock, context: _ChunkAssemblyContext) -> _ParentAssembly:
-        related_blocks, relation_types = self._select_related_blocks(source_block=source_block, context=context)
+    def _assemble_parent_for_block(
+        self, *, source_block: _ChunkSourceBlock, context: _ChunkAssemblyContext
+    ) -> _ParentAssembly:
+        related_blocks, relation_types = self._select_related_blocks(
+            source_block=source_block, context=context
+        )
         if not related_blocks:
             return _ParentAssembly(
                 parent_content=source_block.text,
@@ -207,7 +250,9 @@ class StructureAwareChunkingService:
 
         ordered_blocks = self._sort_parent_blocks([source_block, *related_blocks])
         return _ParentAssembly(
-            parent_content=self._format_parent_content(source_block=source_block, related_blocks=ordered_blocks),
+            parent_content=self._format_parent_content(
+                source_block=source_block, related_blocks=ordered_blocks
+            ),
             blocks=ordered_blocks,
             relation_types=relation_types,
             strategy="relation_limited",
@@ -230,14 +275,20 @@ class StructureAwareChunkingService:
         for edge in edges:
             relation_type = str(edge.get("type") or "")
             target_block_id = str(edge.get("target_block_id") or "")
-            if relation_type not in _PARENT_RELATION_TYPES or not target_block_id or target_block_id in seen_block_ids:
+            if (
+                relation_type not in _PARENT_RELATION_TYPES
+                or not target_block_id
+                or target_block_id in seen_block_ids
+            ):
                 continue
             target_block = context.get_block(doc_id=source_block.doc_id, block_id=target_block_id)
             if target_block is None or self._should_skip_source_block(target_block):
                 continue
 
             trial_blocks = self._sort_parent_blocks([source_block, *selected_blocks, target_block])
-            trial_content = self._format_parent_content(source_block=source_block, related_blocks=trial_blocks)
+            trial_content = self._format_parent_content(
+                source_block=source_block, related_blocks=trial_blocks
+            )
             if self._count_word_pieces(trial_content) > parent_limit:
                 continue
 
@@ -264,18 +315,27 @@ class StructureAwareChunkingService:
                 return code_splits
 
         if self._count_word_pieces(source_block.text) <= self._chunk_max_word_pieces:
-            return [_ChildSplit(text=source_block.text, metadata={"child_split_strategy": "single_block"})]
+            return [
+                _ChildSplit(
+                    text=source_block.text, metadata={"child_split_strategy": "single_block"}
+                )
+            ]
 
-        if source_block.block_type == "paragraph":
+        if source_block.block_type == "paragraph" and SemanticChunker is not None:
             try:
                 semantic_splitter = SemanticChunker(self._embeddings)
                 semantic_parts = [
                     split_document.page_content
-                    for split_document in semantic_splitter.split_documents([Document(page_content=source_block.text, metadata={})])
+                    for split_document in semantic_splitter.split_documents(
+                        [Document(page_content=source_block.text, metadata={})]
+                    )
                     if split_document.page_content.strip()
                 ]
                 if semantic_parts:
-                    return [_ChildSplit(text=text, metadata={"child_split_strategy": "semantic"}) for text in self._enforce_budget(semantic_parts)]
+                    return [
+                        _ChildSplit(text=text, metadata={"child_split_strategy": "semantic"})
+                        for text in self._enforce_budget(semantic_parts)
+                    ]
             except Exception:
                 pass
 
@@ -285,7 +345,11 @@ class StructureAwareChunkingService:
         header_line, rows = self._parse_table_lines(source_block.text)
         if not header_line or not rows:
             if self._count_word_pieces(source_block.text) <= self._chunk_max_word_pieces:
-                return [_ChildSplit(text=source_block.text, metadata={"child_split_strategy": "single_block"})]
+                return [
+                    _ChildSplit(
+                        text=source_block.text, metadata={"child_split_strategy": "single_block"}
+                    )
+                ]
             return []
 
         splits: list[_ChildSplit] = []
@@ -293,8 +357,13 @@ class StructureAwareChunkingService:
         for row_number, row_text in rows:
             candidate_rows = [*current_rows, (row_number, row_text)]
             candidate_text = "\n".join([header_line, *[row for _, row in candidate_rows]])
-            if self._count_word_pieces(candidate_text) > self._chunk_max_word_pieces and current_rows:
-                splits.append(self._build_table_child_split(header_line=header_line, rows=current_rows))
+            if (
+                self._count_word_pieces(candidate_text) > self._chunk_max_word_pieces
+                and current_rows
+            ):
+                splits.append(
+                    self._build_table_child_split(header_line=header_line, rows=current_rows)
+                )
                 current_rows = [(row_number, row_text)]
                 continue
             if self._count_word_pieces(candidate_text) > self._chunk_max_word_pieces:
@@ -309,15 +378,24 @@ class StructureAwareChunkingService:
         groups = self._parse_list_lines(source_block.text)
         if not groups:
             if self._count_word_pieces(source_block.text) <= self._chunk_max_word_pieces:
-                return [_ChildSplit(text=source_block.text, metadata={"child_split_strategy": "single_block"})]
+                return [
+                    _ChildSplit(
+                        text=source_block.text, metadata={"child_split_strategy": "single_block"}
+                    )
+                ]
             return []
 
         splits: list[_ChildSplit] = []
         current_groups: list[tuple[int, list[str]]] = []
         for item_number, lines in groups:
             candidate_groups = [*current_groups, (item_number, lines)]
-            candidate_text = "\n".join(line for _, group_lines in candidate_groups for line in group_lines)
-            if self._count_word_pieces(candidate_text) > self._chunk_max_word_pieces and current_groups:
+            candidate_text = "\n".join(
+                line for _, group_lines in candidate_groups for line in group_lines
+            )
+            if (
+                self._count_word_pieces(candidate_text) > self._chunk_max_word_pieces
+                and current_groups
+            ):
                 splits.append(self._build_list_child_split(current_groups))
                 current_groups = [(item_number, lines)]
                 continue
@@ -333,7 +411,11 @@ class StructureAwareChunkingService:
         units = self._parse_code_units(source_block.text)
         if not units:
             if self._count_word_pieces(source_block.text) <= self._chunk_max_word_pieces:
-                return [_ChildSplit(text=source_block.text, metadata={"child_split_strategy": "single_block"})]
+                return [
+                    _ChildSplit(
+                        text=source_block.text, metadata={"child_split_strategy": "single_block"}
+                    )
+                ]
             return []
 
         splits: list[_ChildSplit] = []
@@ -362,13 +444,28 @@ class StructureAwareChunkingService:
         child_count: int,
     ) -> IngestedChunk:
         child_text = child_split.text
-        chunk_id = self._build_child_chunk_id(document=document, source_block=source_block, parent_chunk_id=str(parent_metadata["parent_chunk_id"]), child_index=child_index, child_text=child_text)
-        retrieval_text, retrieval_strategy = self._build_retrieval_text(source_block=source_block, child_text=child_text, assembly=assembly)
+        chunk_id = self._build_child_chunk_id(
+            document=document,
+            source_block=source_block,
+            parent_chunk_id=str(parent_metadata["parent_chunk_id"]),
+            child_index=child_index,
+            child_text=child_text,
+        )
+        regulation_anchors = self._resolve_regulation_anchors(
+            child_text=child_text, source_block=source_block, assembly=assembly
+        )
+        retrieval_text, retrieval_strategy = self._build_retrieval_text(
+            source_block=source_block,
+            child_text=child_text,
+            assembly=assembly,
+            regulation_anchors=regulation_anchors,
+        )
         metadata = {
             **document.metadata,
             **source_block.metadata,
             **parent_metadata,
             **child_split.metadata,
+            **regulation_anchors,
             "chunk_id": chunk_id,
             "doc_id": document.doc_id,
             "source_name": document.source_name,
@@ -425,7 +522,9 @@ class StructureAwareChunkingService:
             "parent_chunk_id": parent_chunk_id,
             "parent_block_id": source_block.source_block_id,
             "parent_wordpiece_count": parent_wordpiece_count,
-            "parent_content_hash": hashlib.sha256(assembly.parent_content.encode("utf-8")).hexdigest(),
+            "parent_content_hash": hashlib.sha256(
+                assembly.parent_content.encode("utf-8")
+            ).hexdigest(),
             "parent_content_preview": self._build_parent_preview(assembly.parent_content),
             "parent_assembly_strategy": assembly.strategy,
             "parent_source_block_ids": assembly.source_block_ids,
@@ -439,7 +538,9 @@ class StructureAwareChunkingService:
             metadata["parent_content"] = assembly.parent_content
             metadata["parent_content_available"] = "metadata"
         else:
-            metadata["parent_content_available"] = "store" if self._parent_store is not None else "preview_only"
+            metadata["parent_content_available"] = (
+                "store" if self._parent_store is not None else "preview_only"
+            )
         return metadata
 
     def _build_parent_record(
@@ -456,7 +557,9 @@ class StructureAwareChunkingService:
             parent_content=assembly.parent_content,
             parent_wordpiece_count=int(parent_metadata["parent_wordpiece_count"]),
             parent_content_hash=str(parent_metadata["parent_content_hash"]),
-            section_path=assembly.blocks[0].section_path if assembly.blocks else list(document.section_path),
+            section_path=assembly.blocks[0].section_path
+            if assembly.blocks
+            else list(document.section_path),
             page=document.page or document.page_or_section,
             title=document.title,
             metadata={
@@ -466,7 +569,9 @@ class StructureAwareChunkingService:
             },
         )
 
-    def _build_assembled_parent_chunk_id(self, *, document: NormalizedDocument, assembly: _ParentAssembly) -> str:
+    def _build_assembled_parent_chunk_id(
+        self, *, document: NormalizedDocument, assembly: _ParentAssembly
+    ) -> str:
         raw_value = f"{document.doc_id}:{':'.join(assembly.source_block_ids)}:parent"
         digest = hashlib.sha1(raw_value.encode("utf-8")).hexdigest()[:16]
         return f"parent-{digest}"
@@ -495,8 +600,13 @@ class StructureAwareChunkingService:
             return normalized
         return normalized[: limit - 3].rstrip() + "..."
 
-    def _format_parent_content(self, *, source_block: _ChunkSourceBlock, related_blocks: list[_ChunkSourceBlock]) -> str:
-        if len(related_blocks) == 1 and related_blocks[0].source_block_id == source_block.source_block_id:
+    def _format_parent_content(
+        self, *, source_block: _ChunkSourceBlock, related_blocks: list[_ChunkSourceBlock]
+    ) -> str:
+        if (
+            len(related_blocks) == 1
+            and related_blocks[0].source_block_id == source_block.source_block_id
+        ):
             return source_block.text
         parts = []
         for block in related_blocks:
@@ -505,9 +615,18 @@ class StructureAwareChunkingService:
         return "\n\n".join(parts).strip()
 
     def _sort_parent_blocks(self, blocks: list[_ChunkSourceBlock]) -> list[_ChunkSourceBlock]:
-        return sorted(blocks, key=lambda block: (self._page_sort_value(block.page), block.block_order, block.source_block_id))
+        return sorted(
+            blocks,
+            key=lambda block: (
+                self._page_sort_value(block.page),
+                block.block_order,
+                block.source_block_id,
+            ),
+        )
 
-    def _build_table_child_split(self, *, header_line: str, rows: list[tuple[int, str]]) -> _ChildSplit:
+    def _build_table_child_split(
+        self, *, header_line: str, rows: list[tuple[int, str]]
+    ) -> _ChildSplit:
         row_numbers = [row_number for row_number, _ in rows]
         return _ChildSplit(
             text="\n".join([header_line, *[row_text for _, row_text in rows]]),
@@ -600,18 +719,42 @@ class StructureAwareChunkingService:
             units.append("\n".join(current_lines).strip())
         return [(index, unit) for index, unit in enumerate(units, start=1) if unit]
 
-    def _build_retrieval_text(self, *, source_block: _ChunkSourceBlock, child_text: str, assembly: _ParentAssembly) -> tuple[str, str]:
+    def _build_retrieval_text(
+        self,
+        *,
+        source_block: _ChunkSourceBlock,
+        child_text: str,
+        assembly: _ParentAssembly,
+        regulation_anchors: dict[str, Any] | None = None,
+    ) -> tuple[str, str]:
         if source_block.block_type == "table":
-            return self._build_table_retrieval_text(source_block=source_block, child_text=child_text)
+            return self._build_table_retrieval_text(
+                source_block=source_block, child_text=child_text
+            )
         if source_block.block_type == "image":
-            return self._build_image_retrieval_text(source_block=source_block, child_text=child_text, assembly=assembly)
+            return self._build_image_retrieval_text(
+                source_block=source_block, child_text=child_text, assembly=assembly
+            )
         if source_block.block_type == "formula":
-            return self._build_formula_retrieval_text(source_block=source_block, child_text=child_text, assembly=assembly)
+            return self._build_formula_retrieval_text(
+                source_block=source_block, child_text=child_text, assembly=assembly
+            )
+        anchors = regulation_anchors or {}
+        if anchors.get("is_regulation_anchor"):
+            return self._build_regulation_retrieval_text(
+                source_block=source_block,
+                child_text=child_text,
+                anchors=anchors,
+            )
         return child_text, "original"
 
-    def _build_table_retrieval_text(self, *, source_block: _ChunkSourceBlock, child_text: str) -> tuple[str, str]:
+    def _build_table_retrieval_text(
+        self, *, source_block: _ChunkSourceBlock, child_text: str
+    ) -> tuple[str, str]:
         metadata = source_block.metadata
-        if not any(metadata.get(key) for key in ("caption_text", "table_headers", "table_row_count")):
+        if not any(
+            metadata.get(key) for key in ("caption_text", "table_headers", "table_row_count")
+        ):
             return child_text, "original"
         parts = [
             self._metadata_line("Title", source_block.title),
@@ -621,7 +764,9 @@ class StructureAwareChunkingService:
             self._metadata_line("Rows", metadata.get("table_row_count")),
             child_text,
         ]
-        return self._bounded_retrieval_text(parts=parts, child_text=child_text, strategy="table_enhanced")
+        return self._bounded_retrieval_text(
+            parts=parts, child_text=child_text, strategy="table_enhanced"
+        )
 
     def _build_image_retrieval_text(
         self,
@@ -637,10 +782,15 @@ class StructureAwareChunkingService:
             self._metadata_line("Image title", metadata.get("image_title")),
             self._metadata_line("Alt", metadata.get("image_alt_text")),
             self._metadata_line("Caption", metadata.get("caption_text")),
-            self._metadata_line("Context", self._related_parent_preview(source_block=source_block, assembly=assembly)),
+            self._metadata_line(
+                "Context",
+                self._related_parent_preview(source_block=source_block, assembly=assembly),
+            ),
             child_text,
         ]
-        return self._bounded_retrieval_text(parts=parts, child_text=child_text, strategy="image_enhanced")
+        return self._bounded_retrieval_text(
+            parts=parts, child_text=child_text, strategy="image_enhanced"
+        )
 
     def _build_formula_retrieval_text(
         self,
@@ -656,13 +806,49 @@ class StructureAwareChunkingService:
             self._metadata_line("Caption", metadata.get("caption_text")),
             self._metadata_line("Formula", metadata.get("formula_linearized_text")),
             self._metadata_line("Symbols", metadata.get("formula_symbols")),
-            self._metadata_line("Context", self._related_parent_preview(source_block=source_block, assembly=assembly)),
+            self._metadata_line(
+                "Context",
+                self._related_parent_preview(source_block=source_block, assembly=assembly),
+            ),
             child_text,
         ]
-        return self._bounded_retrieval_text(parts=parts, child_text=child_text, strategy="formula_enhanced")
+        return self._bounded_retrieval_text(
+            parts=parts, child_text=child_text, strategy="formula_enhanced"
+        )
 
-    def _bounded_retrieval_text(self, *, parts: list[str | None], child_text: str, strategy: str) -> tuple[str, str]:
-        metadata_parts = [part for part in parts if part and part.strip() and part.strip() != child_text.strip()]
+    def _build_regulation_retrieval_text(
+        self,
+        *,
+        source_block: _ChunkSourceBlock,
+        child_text: str,
+        anchors: dict[str, Any],
+    ) -> tuple[str, str]:
+        parts = [
+            self._metadata_line("Title", source_block.title),
+            self._metadata_line("Section", " > ".join(source_block.section_path)),
+            self._metadata_line("Clause", anchors.get("clause_id")),
+            self._metadata_line("Table", anchors.get("table_id")),
+            self._metadata_line("English alias", anchors.get("english_alias")),
+            self._metadata_line("Numeric anchors", anchors.get("numeric_anchor_terms")),
+            self._metadata_line(
+                "Row",
+                self._build_pseudo_table_row_preview(
+                    key=anchors.get("pseudo_table_row_key"),
+                    value=anchors.get("pseudo_table_row_value"),
+                ),
+            ),
+            child_text,
+        ]
+        return self._bounded_retrieval_text(
+            parts=parts, child_text=child_text, strategy="regulation_enhanced"
+        )
+
+    def _bounded_retrieval_text(
+        self, *, parts: list[str | None], child_text: str, strategy: str
+    ) -> tuple[str, str]:
+        metadata_parts = [
+            part for part in parts if part and part.strip() and part.strip() != child_text.strip()
+        ]
         if not metadata_parts:
             return child_text, "original"
 
@@ -692,9 +878,59 @@ class StructureAwareChunkingService:
             return normalized
         return normalized[:177].rstrip() + "..."
 
-    def _related_parent_preview(self, *, source_block: _ChunkSourceBlock, assembly: _ParentAssembly) -> str:
-        related_text = " ".join(block.text for block in assembly.blocks if block.source_block_id != source_block.source_block_id)
+    def _related_parent_preview(
+        self, *, source_block: _ChunkSourceBlock, assembly: _ParentAssembly
+    ) -> str:
+        related_text = " ".join(
+            block.text
+            for block in assembly.blocks
+            if block.source_block_id != source_block.source_block_id
+        )
         return self._build_parent_preview(related_text, limit=160) if related_text else ""
+
+    def _resolve_regulation_anchors(
+        self,
+        *,
+        child_text: str,
+        source_block: _ChunkSourceBlock,
+        assembly: _ParentAssembly,
+    ) -> dict[str, Any]:
+        anchors = extract_regulation_anchors(child_text)
+        if anchors.get("clause_id") and anchors.get("table_id"):
+            return anchors
+
+        parent_anchors = extract_regulation_anchors(source_block.text)
+        if assembly.parent_content != source_block.text:
+            assembly_anchors = extract_regulation_anchors(assembly.parent_content)
+            parent_anchors = {
+                key: parent_anchors.get(key) or assembly_anchors.get(key)
+                for key in set(parent_anchors) | set(assembly_anchors)
+            }
+
+        for field_name in ("clause_id", "table_id", "english_alias"):
+            anchors[field_name] = anchors.get(field_name) or parent_anchors.get(field_name)
+        if not anchors.get("numeric_anchor_terms") and parent_anchors.get("numeric_anchor_terms"):
+            anchors["numeric_anchor_terms"] = list(parent_anchors["numeric_anchor_terms"])
+            anchors["has_numeric_anchor"] = bool(anchors["numeric_anchor_terms"])
+        if not anchors.get("pseudo_table_row_key") and parent_anchors.get("pseudo_table_row_key"):
+            anchors["pseudo_table_row_key"] = parent_anchors["pseudo_table_row_key"]
+        if not anchors.get("pseudo_table_row_value") and parent_anchors.get("pseudo_table_row_value"):
+            anchors["pseudo_table_row_value"] = parent_anchors["pseudo_table_row_value"]
+        anchors["is_normative_clause"] = bool(
+            anchors.get("is_normative_clause") or parent_anchors.get("is_normative_clause")
+        )
+        anchors["is_regulation_anchor"] = bool(
+            anchors.get("is_regulation_anchor") or parent_anchors.get("is_regulation_anchor")
+        )
+        if not anchors.get("regulation_anchor_terms"):
+            anchors["regulation_anchor_terms"] = list(parent_anchors.get("regulation_anchor_terms") or [])
+        return anchors
+
+    @staticmethod
+    def _build_pseudo_table_row_preview(*, key: Any, value: Any) -> str | None:
+        if not key or not value:
+            return None
+        return f"{key} {value}"
 
     def _enforce_budget(self, chunk_texts: list[str]) -> list[str]:
         bounded_chunks: list[str] = []
@@ -739,7 +975,3 @@ class StructureAwareChunkingService:
 
 
 SemanticChunkingService = StructureAwareChunkingService
-
-
-
-

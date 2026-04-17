@@ -6,7 +6,9 @@ from backend.src.retrieve.query_router import QueryRouter
 
 def test_query_router_routes_precision_queries() -> None:
     router = QueryRouter(Settings())
-    decision = router.route("StreamingResponse class path backend/src/api/main.py", requested_top_k=4)
+    decision = router.route(
+        "StreamingResponse class path backend/src/api/main.py", requested_top_k=4
+    )
 
     assert decision.route_name == "precision"
     assert decision.enable_multi_query is False
@@ -43,4 +45,15 @@ def test_query_router_routes_general_queries() -> None:
 
     assert decision.route_name == "general"
     assert decision.enable_multi_query is False
-    assert decision.retry_policy == "widen_only"
+    assert decision.retry_policy == "widen_then_keyword"
+
+
+def test_query_router_routes_regulation_queries() -> None:
+    router = QueryRouter(Settings())
+    decision = router.route("本规范适用于哪些内容的检测与评价？", requested_top_k=4)
+
+    assert decision.route_name == "regulation"
+    assert decision.enable_multi_query is True
+    assert decision.prefer_lexical is True
+    assert decision.max_query_variants == 2
+    assert decision.retry_policy == "widen_then_keyword"

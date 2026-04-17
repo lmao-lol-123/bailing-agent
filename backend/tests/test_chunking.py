@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from backend.src.core.config import Settings
 from backend.src.core.models import NormalizedDocument, SourceType
@@ -23,7 +23,11 @@ def test_chunking_preserves_metadata_from_structured_block(fake_embeddings) -> N
                 doc_type=SourceType.MARKDOWN,
                 updated_at="2026-04-03T10:00:00+00:00",
                 content="Install dependencies with pip.",
-                metadata={"block_id": "block-install", "block_type": "paragraph", "layout_role": "body"},
+                metadata={
+                    "block_id": "block-install",
+                    "block_type": "paragraph",
+                    "layout_role": "body",
+                },
             )
         ]
     )
@@ -36,6 +40,7 @@ def test_chunking_preserves_metadata_from_structured_block(fake_embeddings) -> N
     assert chunks[0].metadata["updated_at"] == "2026-04-03T10:00:00+00:00"
     assert chunks[0].metadata["block_type"] == "paragraph"
     assert chunks[0].metadata["source_block_id"] == "block-install"
+
 
 def test_chunking_splits_oversized_paragraphs_with_token_budget(fake_embeddings) -> None:
     settings = Settings(chunk_max_word_pieces=24, chunk_overlap_word_pieces=4)
@@ -72,7 +77,13 @@ def test_chunking_keeps_prelinearized_tables_lists_and_images(fake_embeddings) -
                 title="Deployment Guide",
                 section_path=["Deployment Guide", "Runtime"],
                 content="Table columns: Setting, Value\nRow 1: Setting=PORT; Value=8000",
-                metadata={"block_id": "table-runtime", "block_type": "table", "layout_role": "body", "table_headers": ["Setting", "Value"], "table_row_count": 1},
+                metadata={
+                    "block_id": "table-runtime",
+                    "block_type": "table",
+                    "layout_role": "body",
+                    "table_headers": ["Setting", "Value"],
+                    "table_row_count": 1,
+                },
             ),
             NormalizedDocument(
                 doc_id="doc-3",
@@ -82,7 +93,13 @@ def test_chunking_keeps_prelinearized_tables_lists_and_images(fake_embeddings) -
                 title="Deployment Guide",
                 section_path=["Deployment Guide", "Runtime"],
                 content="Image block\nAlt: Architecture diagram\nSource: images/arch.png\nCaption: Request flow between API and retriever.",
-                metadata={"block_id": "image-runtime", "block_type": "image", "layout_role": "body", "image_source": "images/arch.png", "image_alt_text": "Architecture diagram"},
+                metadata={
+                    "block_id": "image-runtime",
+                    "block_type": "image",
+                    "layout_role": "body",
+                    "image_source": "images/arch.png",
+                    "image_alt_text": "Architecture diagram",
+                },
             ),
             NormalizedDocument(
                 doc_id="doc-3",
@@ -92,7 +109,13 @@ def test_chunking_keeps_prelinearized_tables_lists_and_images(fake_embeddings) -
                 title="Deployment Guide",
                 section_path=["Deployment Guide", "Runtime"],
                 content="Level 1: Install dependencies\nLevel 2: Activate venv",
-                metadata={"block_id": "list-runtime", "block_type": "list", "layout_role": "body", "list_item_count": 2, "list_max_level": 2},
+                metadata={
+                    "block_id": "list-runtime",
+                    "block_type": "list",
+                    "layout_role": "body",
+                    "list_item_count": 2,
+                    "list_max_level": 2,
+                },
             ),
         ]
     )
@@ -108,6 +131,7 @@ def test_chunking_keeps_prelinearized_tables_lists_and_images(fake_embeddings) -
     assert "Level 2: Activate venv" in list_chunk.content
     assert list_chunk.metadata["list_max_level"] == 2
 
+
 def test_chunking_uses_existing_section_path_without_heading_reparse(fake_embeddings) -> None:
     settings = Settings(chunk_max_word_pieces=96, chunk_overlap_word_pieces=8)
     service = StructureAwareChunkingService(settings=settings, embeddings=fake_embeddings)
@@ -122,12 +146,17 @@ def test_chunking_uses_existing_section_path_without_heading_reparse(fake_embedd
                 title="Ops",
                 section_path=["Ops", "Deploy", "Rollback"],
                 content="Rollback safely.",
-                metadata={"block_id": "block-rollback", "block_type": "paragraph", "layout_role": "body"},
+                metadata={
+                    "block_id": "block-rollback",
+                    "block_type": "paragraph",
+                    "layout_role": "body",
+                },
             )
         ]
     )
 
     assert chunks[0].metadata["section_path"] == ["Ops", "Deploy", "Rollback"]
+
 
 def test_chunking_consumes_structured_block_metadata_without_reparsing(fake_embeddings) -> None:
     settings = Settings(chunk_max_word_pieces=96, chunk_overlap_word_pieces=8)
@@ -150,7 +179,9 @@ def test_chunking_consumes_structured_block_metadata_without_reparsing(fake_embe
                     "layout_role": "body",
                     "bbox": {"x0": 1, "y0": 2, "x1": 3, "y1": 4},
                     "parser_source": "pymupdf4llm",
-                    "graph_edges": [{"type": "has_caption", "target_block_id": "caption-1", "weight": 0.98}],
+                    "graph_edges": [
+                        {"type": "has_caption", "target_block_id": "caption-1", "weight": 0.98}
+                    ],
                     "graph_neighbors": ["caption-1"],
                 },
             )
@@ -177,7 +208,11 @@ def test_chunking_skips_page_markers_and_noise_blocks(fake_embeddings) -> None:
                 source_name="manual.pdf",
                 source_uri_or_path="manual.pdf",
                 content="1",
-                metadata={"block_id": "page-1", "block_type": "page_marker", "layout_role": "page_marker"},
+                metadata={
+                    "block_id": "page-1",
+                    "block_type": "page_marker",
+                    "layout_role": "page_marker",
+                },
             ),
             NormalizedDocument(
                 doc_id="doc-noise",
@@ -185,7 +220,11 @@ def test_chunking_skips_page_markers_and_noise_blocks(fake_embeddings) -> None:
                 source_name="manual.pdf",
                 source_uri_or_path="manual.pdf",
                 content="Company Confidential",
-                metadata={"block_id": "header-1", "block_type": "paragraph", "layout_role": "header"},
+                metadata={
+                    "block_id": "header-1",
+                    "block_type": "paragraph",
+                    "layout_role": "header",
+                },
             ),
             NormalizedDocument(
                 doc_id="doc-noise",
@@ -201,7 +240,11 @@ def test_chunking_skips_page_markers_and_noise_blocks(fake_embeddings) -> None:
                 source_name="manual.pdf",
                 source_uri_or_path="manual.pdf",
                 content="Footer",
-                metadata={"block_id": "footer-1", "block_type": "paragraph", "excluded_from_body": True},
+                metadata={
+                    "block_id": "footer-1",
+                    "block_type": "paragraph",
+                    "excluded_from_body": True,
+                },
             ),
         ]
     )
@@ -223,7 +266,11 @@ def test_chunking_parent_child_metadata_and_long_parent_storage(fake_embeddings)
                 source_uri_or_path="notes.txt",
                 title="Notes",
                 content=long_text,
-                metadata={"block_id": "block-long", "block_type": "paragraph", "layout_role": "body"},
+                metadata={
+                    "block_id": "block-long",
+                    "block_type": "paragraph",
+                    "layout_role": "body",
+                },
             )
         ]
     )
@@ -270,7 +317,6 @@ def test_chunking_fallbacks_missing_structural_fields(fake_embeddings) -> None:
     assert chunks[0].metadata["graph_neighbors"] == []
 
 
-
 def test_table_child_split_repeats_header_and_records_row_range(fake_embeddings) -> None:
     settings = Settings(chunk_max_word_pieces=14, chunk_overlap_word_pieces=2)
     service = StructureAwareChunkingService(settings=settings, embeddings=fake_embeddings)
@@ -296,7 +342,10 @@ def test_table_child_split_repeats_header_and_records_row_range(fake_embeddings)
     assert len(chunks) > 1
     assert all(chunk.metadata["child_split_strategy"] == "table_rows" for chunk in chunks)
     assert all(chunk.metadata["table_header_repeated"] is True for chunk in chunks)
-    assert all(chunk.metadata["child_content"].startswith("Table columns: Metric, Value") for chunk in chunks)
+    assert all(
+        chunk.metadata["child_content"].startswith("Table columns: Metric, Value")
+        for chunk in chunks
+    )
     assert chunks[0].metadata["table_row_start"] == 1
     assert chunks[-1].metadata["table_row_end"] == 4
 
@@ -369,7 +418,9 @@ def test_code_child_split_uses_function_units(fake_embeddings) -> None:
     assert all(chunk.metadata["chunk_wordpiece_count"] <= 20 for chunk in chunks)
 
 
-def test_enhanced_retrieval_text_for_table_image_and_formula_keeps_original_child_content(fake_embeddings) -> None:
+def test_enhanced_retrieval_text_for_table_image_and_formula_keeps_original_child_content(
+    fake_embeddings,
+) -> None:
     settings = Settings(chunk_max_word_pieces=96, chunk_overlap_word_pieces=8)
     service = StructureAwareChunkingService(settings=settings, embeddings=fake_embeddings)
 
@@ -431,7 +482,9 @@ def test_enhanced_retrieval_text_for_table_image_and_formula_keeps_original_chil
 
     table_chunk = next(chunk for chunk in chunks if chunk.metadata["source_block_id"] == "table-rt")
     image_chunk = next(chunk for chunk in chunks if chunk.metadata["source_block_id"] == "image-rt")
-    formula_chunk = next(chunk for chunk in chunks if chunk.metadata["source_block_id"] == "formula-rt")
+    formula_chunk = next(
+        chunk for chunk in chunks if chunk.metadata["source_block_id"] == "formula-rt"
+    )
 
     assert table_chunk.content != table_chunk.metadata["child_content"]
     assert "Table 1. Latency metrics." in table_chunk.content
@@ -443,7 +496,10 @@ def test_enhanced_retrieval_text_for_table_image_and_formula_keeps_original_chil
     assert formula_chunk.content != formula_chunk.metadata["child_content"]
     assert "E equals m c squared" in formula_chunk.content
     assert "Symbols: =, ^" in formula_chunk.content
-    assert all(chunk.metadata["content_role"] == "retrieval_text" for chunk in [table_chunk, image_chunk, formula_chunk])
+    assert all(
+        chunk.metadata["content_role"] == "retrieval_text"
+        for chunk in [table_chunk, image_chunk, formula_chunk]
+    )
 
 
 def test_chunking_generates_stable_child_chunk_ids(fake_embeddings) -> None:
@@ -465,4 +521,77 @@ def test_chunking_generates_stable_child_chunk_ids(fake_embeddings) -> None:
     second = service.chunk_documents(documents)
 
     assert [chunk.chunk_id for chunk in first] == [chunk.chunk_id for chunk in second]
-    assert [chunk.metadata["parent_chunk_id"] for chunk in first] == [chunk.metadata["parent_chunk_id"] for chunk in second]
+    assert [chunk.metadata["parent_chunk_id"] for chunk in first] == [
+        chunk.metadata["parent_chunk_id"] for chunk in second
+    ]
+
+
+def test_chunking_extracts_regulation_clause_and_english_alias_metadata(fake_embeddings) -> None:
+    settings = Settings(chunk_max_word_pieces=96, chunk_overlap_word_pieces=8)
+    service = StructureAwareChunkingService(settings=settings, embeddings=fake_embeddings)
+
+    chunks = service.chunk_documents(
+        [
+            NormalizedDocument(
+                doc_id="doc-reg-1",
+                source_type=SourceType.PDF,
+                source_name="spec.pdf",
+                source_uri_or_path="spec.pdf",
+                page="15",
+                title="Spec",
+                section_path=["Spec", "Terms"],
+                content="`2.1.8` 声波透射法 cross-hole sonic logging",
+                metadata={
+                    "block_id": "block-reg-english",
+                    "block_type": "paragraph",
+                    "layout_role": "body",
+                },
+            )
+        ]
+    )
+
+    assert len(chunks) == 1
+    assert chunks[0].metadata["clause_id"] == "2.1.8"
+    assert chunks[0].metadata["english_alias"] == "cross-hole sonic logging"
+    assert chunks[0].metadata["is_regulation_anchor"] is True
+    assert "Clause: 2.1.8" in chunks[0].content
+    assert "English alias: cross-hole sonic logging" in chunks[0].content
+
+
+def test_chunking_extracts_regulation_table_and_numeric_anchor_metadata(fake_embeddings) -> None:
+    settings = Settings(chunk_max_word_pieces=96, chunk_overlap_word_pieces=8)
+    service = StructureAwareChunkingService(settings=settings, embeddings=fake_embeddings)
+
+    chunks = service.chunk_documents(
+        [
+            NormalizedDocument(
+                doc_id="doc-reg-2",
+                source_type=SourceType.PDF,
+                source_name="spec.pdf",
+                source_uri_or_path="spec.pdf",
+                page="20",
+                title="Spec",
+                section_path=["Spec", "Clause 3.2.5"],
+                content=(
+                    "`3.2.5` 当采用低应变法或声波透射法检测时，受检桩混凝土强度"
+                    "不应低于设计强度的70%, 且不应低于15MPa；\n表3.2.5 砂土 7"
+                ),
+                metadata={
+                    "block_id": "block-reg-table",
+                    "block_type": "paragraph",
+                    "layout_role": "body",
+                },
+            )
+        ]
+    )
+
+    assert len(chunks) == 1
+    assert chunks[0].metadata["clause_id"] == "3.2.5"
+    assert chunks[0].metadata["table_id"] == "3.2.5"
+    assert chunks[0].metadata["is_normative_clause"] is True
+    assert chunks[0].metadata["has_numeric_anchor"] is True
+    assert chunks[0].metadata["numeric_anchor_terms"] == ["70%", "15MPa", "7"]
+    assert chunks[0].metadata["pseudo_table_row_key"] == "砂土"
+    assert chunks[0].metadata["pseudo_table_row_value"] == "7"
+    assert "Table: 3.2.5" in chunks[0].content
+    assert "Numeric anchors: 70%, 15MPa, 7" in chunks[0].content

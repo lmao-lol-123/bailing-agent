@@ -1,2 +1,1 @@
 """Core primitives and configuration."""
-

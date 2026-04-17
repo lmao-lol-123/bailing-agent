@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
 import asyncio
@@ -20,7 +20,9 @@ async def run(question: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Ask a question against the default knowledge base.")
+    parser = argparse.ArgumentParser(
+        description="Ask a question against the default knowledge base."
+    )
     parser.add_argument("question", help="Question to ask.")
     args = parser.parse_args()
     asyncio.run(run(args.question))
@@ -28,4 +30,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

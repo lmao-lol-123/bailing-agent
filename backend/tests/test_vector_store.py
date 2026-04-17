@@ -142,6 +142,72 @@ def test_vector_store_build_citations_deduplicates_same_location() -> None:
     assert citations[0].page == "1"
 
 
+def test_vector_store_build_citations_prefers_child_content_snippet() -> None:
+    documents = [
+        Document(
+            page_content="retrieval text",
+            metadata={
+                "doc_id": "doc-1",
+                "source_name": "guide.md",
+                "source_uri_or_path": "guide.md",
+                "page_or_section": "1",
+                "page": "1",
+                "title": "Guide",
+                "section_path": ["Guide", "Streaming"],
+                "doc_type": "markdown",
+                "child_content": "child snippet source",
+            },
+        )
+    ]
+
+    citations = VectorStoreService.build_citations(documents)
+
+    assert len(citations) == 1
+    assert "child snippet source" in citations[0].snippet
+
+
+def test_vector_store_rejects_session_scoped_docs_without_explicit_doc_filter() -> None:
+    metadata = {
+        "doc_id": "doc-session",
+        "scope": "session",
+        "session_id": "session-1",
+        "source_name": "notes.txt",
+    }
+
+    assert VectorStoreService._matches_metadata_filter(metadata, None) is False
+    assert (
+        VectorStoreService._matches_metadata_filter(
+            metadata,
+            RetrievalFilter(source_names=["notes.txt"]),
+        )
+        is False
+    )
+
+
+def test_vector_store_allows_session_scoped_docs_with_explicit_doc_filter() -> None:
+    metadata = {
+        "doc_id": "doc-session",
+        "scope": "session",
+        "session_id": "session-1",
+        "source_name": "notes.txt",
+    }
+
+    assert (
+        VectorStoreService._matches_metadata_filter(
+            metadata,
+            RetrievalFilter(doc_ids=["doc-session"]),
+        )
+        is True
+    )
+    assert (
+        VectorStoreService._matches_metadata_filter(
+            metadata,
+            RetrievalFilter(doc_ids=["doc-other"]),
+        )
+        is False
+    )
+
+
 def test_vector_store_applies_metadata_filter_and_reranks(monkeypatch, fake_embeddings) -> None:
     case_dir = make_case_dir("vector-store-filter-rerank")
     settings = Settings(
@@ -215,7 +281,48 @@ def test_vector_store_applies_metadata_filter_and_reranks(monkeypatch, fake_embe
     assert [document.metadata["doc_id"] for document in results] == ["doc-markdown", "doc-weak"]
 
 
-def test_vector_store_replaces_child_hit_with_parent_content_and_deduplicates(monkeypatch, fake_embeddings) -> None:
+def test_vector_store_similarity_search_with_trace_returns_three_layers(
+    monkeypatch, fake_embeddings
+) -> None:
+    case_dir = make_case_dir("vector-store-trace")
+    settings = Settings(
+        uploads_directory=case_dir / "uploads",
+        processed_directory=case_dir / "processed",
+        faiss_index_directory=case_dir / "faiss",
+        hybrid_lexical_enabled=False,
+    )
+    settings.ensure_directories()
+    store = VectorStoreService(settings=settings, embeddings=fake_embeddings)
+
+    doc = Document(
+        page_content="FastAPI SSE",
+        metadata={
+            "doc_id": "doc-trace",
+            "source_name": "guide.md",
+            "source_type": "markdown",
+            "source_uri_or_path": "guide.md",
+            "section_path": ["Guide"],
+            "doc_type": "markdown",
+            "page": "1",
+            "chunk_id": "chunk-trace",
+        },
+        id="chunk-trace",
+    )
+    monkeypatch.setattr(
+        store._vector_store, "similarity_search_with_score", lambda query, k, **kwargs: [(doc, 0.1)]
+    )
+
+    documents, trace = store.similarity_search_with_trace("FastAPI SSE", k=1)
+
+    assert len(documents) == 1
+    assert set(trace.keys()) == {"request", "retrieval", "generation"}
+    assert trace["request"]["route_name"]
+    assert "rerank_after" in trace["retrieval"]
+
+
+def test_vector_store_replaces_child_hit_with_parent_content_and_deduplicates(
+    monkeypatch, fake_embeddings
+) -> None:
     case_dir = make_case_dir("vector-store-parent-child")
     settings = Settings(
         uploads_directory=case_dir / "uploads",
@@ -340,7 +447,9 @@ def test_vector_store_hydrates_parent_from_parent_store(monkeypatch, fake_embedd
     assert results[0].metadata["parent_hydrated"] is True
 
 
-def test_vector_store_falls_back_to_child_content_when_parent_store_missing(monkeypatch, fake_embeddings) -> None:
+def test_vector_store_falls_back_to_child_content_when_parent_store_missing(
+    monkeypatch, fake_embeddings
+) -> None:
     case_dir = make_case_dir("vector-store-parent-store-missing")
     settings = Settings(
         uploads_directory=case_dir / "uploads",
@@ -384,7 +493,9 @@ def test_vector_store_falls_back_to_child_content_when_parent_store_missing(monk
     assert results[0].metadata["parent_hydrated"] is False
 
 
-def test_vector_store_hybrid_retrieval_merges_dense_and_lexical_sources(monkeypatch, fake_embeddings) -> None:
+def test_vector_store_hybrid_retrieval_merges_dense_and_lexical_sources(
+    monkeypatch, fake_embeddings
+) -> None:
     case_dir = make_case_dir("vector-store-hybrid")
     settings = Settings(
         uploads_directory=case_dir / "uploads",
@@ -408,10 +519,14 @@ def test_vector_store_hybrid_retrieval_merges_dense_and_lexical_sources(monkeypa
     )
     index_manager.index_chunks([chunk])
 
-    dense_document = Document(page_content=chunk.content, metadata=dict(chunk.metadata), id=chunk.chunk_id)
+    dense_document = Document(
+        page_content=chunk.content, metadata=dict(chunk.metadata), id=chunk.chunk_id
+    )
     lexical_candidate = RetrievedCandidate(
         chunk_id=chunk.chunk_id,
-        document=Document(page_content=chunk.content, metadata=dict(chunk.metadata), id=chunk.chunk_id),
+        document=Document(
+            page_content=chunk.content, metadata=dict(chunk.metadata), id=chunk.chunk_id
+        ),
         retrieval_sources=("lexical",),
         lexical_rank=1,
         lexical_score=1.0,
@@ -435,7 +550,9 @@ def test_vector_store_hybrid_retrieval_merges_dense_and_lexical_sources(monkeypa
     assert results[0].metadata["retrieval_sources"] == ["dense", "lexical"]
 
 
-def test_vector_store_hybrid_retrieval_uses_lexical_candidates_with_metadata_filters(monkeypatch, fake_embeddings) -> None:
+def test_vector_store_hybrid_retrieval_uses_lexical_candidates_with_metadata_filters(
+    monkeypatch, fake_embeddings
+) -> None:
     case_dir = make_case_dir("vector-store-hybrid-filter")
     settings = Settings(
         uploads_directory=case_dir / "uploads",
@@ -470,10 +587,16 @@ def test_vector_store_hybrid_retrieval_uses_lexical_candidates_with_metadata_fil
     index_manager.index_chunks([markdown_chunk])
     index_manager.index_chunks([txt_chunk])
 
-    monkeypatch.setattr(store._vector_store, "similarity_search_with_score", lambda query, k, **kwargs: [])
+    monkeypatch.setattr(
+        store._vector_store, "similarity_search_with_score", lambda query, k, **kwargs: []
+    )
     markdown_candidate = RetrievedCandidate(
         chunk_id=markdown_chunk.chunk_id,
-        document=Document(page_content=markdown_chunk.content, metadata=dict(markdown_chunk.metadata), id=markdown_chunk.chunk_id),
+        document=Document(
+            page_content=markdown_chunk.content,
+            metadata=dict(markdown_chunk.metadata),
+            id=markdown_chunk.chunk_id,
+        ),
         retrieval_sources=("lexical",),
         lexical_rank=1,
         lexical_score=1.0,
@@ -481,7 +604,9 @@ def test_vector_store_hybrid_retrieval_uses_lexical_candidates_with_metadata_fil
     )
     txt_candidate = RetrievedCandidate(
         chunk_id=txt_chunk.chunk_id,
-        document=Document(page_content=txt_chunk.content, metadata=dict(txt_chunk.metadata), id=txt_chunk.chunk_id),
+        document=Document(
+            page_content=txt_chunk.content, metadata=dict(txt_chunk.metadata), id=txt_chunk.chunk_id
+        ),
         retrieval_sources=("lexical",),
         lexical_rank=2,
         lexical_score=0.9,
@@ -506,6 +631,8 @@ def test_vector_store_hybrid_retrieval_uses_lexical_candidates_with_metadata_fil
 
     assert [document.metadata["doc_id"] for document in results] == ["doc-markdown"]
     assert "lexical" in results[0].metadata["retrieval_sources"]
+
+
 def test_vector_store_applies_precision_route_metadata(monkeypatch, fake_embeddings) -> None:
     case_dir = make_case_dir("vector-store-route-precision")
     settings = Settings(
@@ -546,7 +673,9 @@ def test_vector_store_applies_precision_route_metadata(monkeypatch, fake_embeddi
     assert results[0].metadata["matched_query_count"] == 1
 
 
-def test_vector_store_fuses_multi_query_candidates_across_variants(monkeypatch, fake_embeddings) -> None:
+def test_vector_store_fuses_multi_query_candidates_across_variants(
+    monkeypatch, fake_embeddings
+) -> None:
     case_dir = make_case_dir("vector-store-query-fusion")
     settings = Settings(
         uploads_directory=case_dir / "uploads",
@@ -608,7 +737,9 @@ def test_vector_store_fuses_multi_query_candidates_across_variants(monkeypatch, 
         return [candidate_shared]
 
     monkeypatch.setattr(store, "_retrieve_query_variant", fake_retrieve_query_variant)
-    monkeypatch.setattr(store, "_rerank_candidates", lambda query, candidates, top_k: candidates[:top_k])
+    monkeypatch.setattr(
+        store, "_rerank_candidates", lambda query, candidates, top_k: candidates[:top_k]
+    )
 
     results = store.similarity_search("Explain Figure 2 latency tradeoff", k=2)
 
@@ -618,7 +749,9 @@ def test_vector_store_fuses_multi_query_candidates_across_variants(monkeypatch, 
     assert set(results[0].metadata["query_variant_ids"]) >= {"original", "keyword_focused"}
 
 
-def test_vector_store_soft_targeting_bias_prefers_target_block(monkeypatch, fake_embeddings) -> None:
+def test_vector_store_soft_targeting_bias_prefers_target_block(
+    monkeypatch, fake_embeddings
+) -> None:
     case_dir = make_case_dir("vector-store-soft-targeting")
     settings = Settings(
         uploads_directory=case_dir / "uploads",
@@ -631,10 +764,42 @@ def test_vector_store_soft_targeting_bias_prefers_target_block(monkeypatch, fake
     settings.ensure_directories()
     store = VectorStoreService(settings=settings, embeddings=fake_embeddings)
 
-    table_doc = Document(page_content="Figure 2 table result", metadata={"doc_id": "doc-table", "source_name": "guide-table.md", "source_uri_or_path": "guide-table.md", "source_type": "markdown", "doc_type": "markdown", "page": "1", "section_path": ["Guide"], "chunk_id": "chunk-table", "source_block_type": "table"}, id="chunk-table")
-    paragraph_doc = Document(page_content="Figure 2 is discussed here", metadata={"doc_id": "doc-paragraph", "source_name": "guide-paragraph.md", "source_uri_or_path": "guide-paragraph.md", "source_type": "markdown", "doc_type": "markdown", "page": "2", "section_path": ["Guide"], "chunk_id": "chunk-paragraph", "source_block_type": "paragraph"}, id="chunk-paragraph")
+    table_doc = Document(
+        page_content="Figure 2 table result",
+        metadata={
+            "doc_id": "doc-table",
+            "source_name": "guide-table.md",
+            "source_uri_or_path": "guide-table.md",
+            "source_type": "markdown",
+            "doc_type": "markdown",
+            "page": "1",
+            "section_path": ["Guide"],
+            "chunk_id": "chunk-table",
+            "source_block_type": "table",
+        },
+        id="chunk-table",
+    )
+    paragraph_doc = Document(
+        page_content="Figure 2 is discussed here",
+        metadata={
+            "doc_id": "doc-paragraph",
+            "source_name": "guide-paragraph.md",
+            "source_uri_or_path": "guide-paragraph.md",
+            "source_type": "markdown",
+            "doc_type": "markdown",
+            "page": "2",
+            "section_path": ["Guide"],
+            "chunk_id": "chunk-paragraph",
+            "source_block_type": "paragraph",
+        },
+        id="chunk-paragraph",
+    )
 
-    monkeypatch.setattr(store._vector_store, "similarity_search_with_score", lambda query, k, **kwargs: [(paragraph_doc, 0.1), (table_doc, 0.1)])
+    monkeypatch.setattr(
+        store._vector_store,
+        "similarity_search_with_score",
+        lambda query, k, **kwargs: [(paragraph_doc, 0.1), (table_doc, 0.1)],
+    )
 
     results = store.similarity_search("Figure 2 on page 12", k=2)
 
@@ -657,19 +822,59 @@ def test_vector_store_hard_targeting_keeps_target_blocks(monkeypatch, fake_embed
     settings.ensure_directories()
     store = VectorStoreService(settings=settings, embeddings=fake_embeddings)
 
-    table_doc_a = Document(page_content="Figure 2 row 1", metadata={"doc_id": "doc-table-a", "source_name": "guide-table-a.md", "source_uri_or_path": "guide-table-a.md", "source_type": "markdown", "doc_type": "markdown", "page": "1", "section_path": ["Guide"], "chunk_id": "chunk-table-a", "source_block_type": "table"}, id="chunk-table-a")
-    table_doc_b = Document(page_content="Figure 2 row 2", metadata={"doc_id": "doc-table-b", "source_name": "guide-table-b.md", "source_uri_or_path": "guide-table-b.md", "source_type": "markdown", "doc_type": "markdown", "page": "2", "section_path": ["Guide"], "chunk_id": "chunk-table-b", "source_block_type": "table"}, id="chunk-table-b")
-    paragraph_doc = Document(page_content="Figure 2 explanation", metadata={"doc_id": "doc-paragraph", "source_name": "guide-paragraph.md", "source_uri_or_path": "guide-paragraph.md", "source_type": "markdown", "doc_type": "markdown", "page": "3", "section_path": ["Guide"], "chunk_id": "chunk-paragraph", "source_block_type": "paragraph"}, id="chunk-paragraph")
+    table_doc_a = Document(
+        page_content="Figure 2 row 1",
+        metadata={
+            "doc_id": "doc-table-a",
+            "source_name": "guide-table-a.md",
+            "source_uri_or_path": "guide-table-a.md",
+            "source_type": "markdown",
+            "doc_type": "markdown",
+            "page": "1",
+            "section_path": ["Guide"],
+            "chunk_id": "chunk-table-a",
+            "source_block_type": "table",
+        },
+        id="chunk-table-a",
+    )
+    table_doc_b = Document(
+        page_content="Figure 2 row 2",
+        metadata={
+            "doc_id": "doc-table-b",
+            "source_name": "guide-table-b.md",
+            "source_uri_or_path": "guide-table-b.md",
+            "source_type": "markdown",
+            "doc_type": "markdown",
+            "page": "2",
+            "section_path": ["Guide"],
+            "chunk_id": "chunk-table-b",
+            "source_block_type": "table",
+        },
+        id="chunk-table-b",
+    )
+    paragraph_doc = Document(
+        page_content="Figure 2 explanation",
+        metadata={
+            "doc_id": "doc-paragraph",
+            "source_name": "guide-paragraph.md",
+            "source_uri_or_path": "guide-paragraph.md",
+            "source_type": "markdown",
+            "doc_type": "markdown",
+            "page": "3",
+            "section_path": ["Guide"],
+            "chunk_id": "chunk-paragraph",
+            "source_block_type": "paragraph",
+        },
+        id="chunk-paragraph",
+    )
 
-    monkeypatch.setattr(store._vector_store, "similarity_search_with_score", lambda query, k, **kwargs: [(paragraph_doc, 0.1), (table_doc_a, 0.1), (table_doc_b, 0.1)])
+    monkeypatch.setattr(
+        store._vector_store,
+        "similarity_search_with_score",
+        lambda query, k, **kwargs: [(paragraph_doc, 0.1), (table_doc_a, 0.1), (table_doc_b, 0.1)],
+    )
 
     results = store.similarity_search("Figure 2 on page 12", k=3)
 
     assert [document.metadata["doc_id"] for document in results] == ["doc-table-a", "doc-table-b"]
     assert all(document.metadata["targeting_mode"] == "hard" for document in results)
-
-
-
-
-
-

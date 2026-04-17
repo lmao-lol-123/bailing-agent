@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
@@ -20,6 +20,28 @@ class SourceType(str, Enum):
 class ChatRole(str, Enum):
     USER = "user"
     ASSISTANT = "assistant"
+
+
+class SessionFileStatus(str, Enum):
+    UPLOADED = "uploaded"
+    PARSED = "parsed"
+    INDEXED = "indexed"
+    FAILED = "failed"
+    RECOVER_PENDING = "recover_pending"
+
+
+class AnswerStatus(str, Enum):
+    OK = "ok"
+    WEAK_HIT = "weak_hit"
+    REJECTED = "rejected"
+
+
+class AnswerReason(str, Enum):
+    NORMAL = "normal"
+    NO_CONTEXT = "no_context"
+    WEAK_EVIDENCE = "weak_evidence"
+    CITATION_VALIDATION_FAILED = "citation_validation_failed"
+    UNSUPPORTED = "unsupported"
 
 
 class NormalizedDocument(BaseModel):
@@ -57,6 +79,8 @@ class ChatMessage(BaseModel):
     content: str
     grounded: bool | None = None
     citations: list[Citation] = Field(default_factory=list)
+    retrieval_query: str | None = None
+    debug_trace: dict[str, Any] | None = None
     created_at: datetime | None = None
 
 
@@ -64,6 +88,21 @@ class ChatSessionSummary(BaseModel):
     session_id: str
     title: str
     message_count: int
+    updated_at: datetime | None = None
+
+
+class SessionFileSummary(BaseModel):
+    file_id: str
+    session_id: str
+    doc_id: str | None = None
+    source_name: str
+    source_uri_or_path: str
+    doc_type: SourceType | None = None
+    page_count: int | None = None
+    status: SessionFileStatus = SessionFileStatus.UPLOADED
+    error_code: str | None = None
+    error_message: str | None = None
+    created_at: datetime | None = None
     updated_at: datetime | None = None
 
 

@@ -1,11 +1,10 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import csv
 import json
 import math
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -21,10 +20,12 @@ _TABLE_ROW_PATTERN = re.compile(r"^\|.*\|$")
 _TABLE_ALIGNMENT_PATTERN = re.compile(r"^:?-{3,}:?$")
 _PAGE_MARKER_PATTERN = re.compile(r"^(?:\d+|page\s+\d+|\d+\s*/\s*\d+)$", re.IGNORECASE)
 _MD_IMAGE_PATTERN = re.compile(
-    r'^!\[(?P<alt>[^\]]*)\]\((?P<src>[^)\s]+)(?:\s+[\"\'](?P<title>.*?)[\"\'])?\)$'
+    r"^!\[(?P<alt>[^\]]*)\]\((?P<src>[^)\s]+)(?:\s+[\"\'](?P<title>.*?)[\"\'])?\)$"
 )
 _HTML_IMG_PATTERN = re.compile(r"^<img\s+(?P<attrs>[^>]+?)\s*/?>$", re.IGNORECASE)
-_HTML_ATTR_PATTERN = re.compile(r'(?P<name>[a-zA-Z_:][a-zA-Z0-9:._-]*)\s*=\s*[\"\'](?P<value>.*?)[\"\']')
+_HTML_ATTR_PATTERN = re.compile(
+    r"(?P<name>[a-zA-Z_:][a-zA-Z0-9:._-]*)\s*=\s*[\"\'](?P<value>.*?)[\"\']"
+)
 _CAPTION_PATTERN = re.compile(
     r"^(?:(?:caption:\s*)?(?P<kind>figure|fig\.|table|image|equation|formula|eq\.|图|图片|表|公式)\s*(?P<number>\d+)?)\s*[:.\-]\s*(?P<caption>.+)$",
     re.IGNORECASE,
@@ -37,7 +38,24 @@ _FORMULA_BLOCK_START_PATTERN = re.compile(r"^(\$\$|\\\[)")
 _FORMULA_BLOCK_END_PATTERN = re.compile(r"^(\$\$|\\\])")
 _FORMULA_SYMBOL_PATTERN = re.compile(r"(\\sum|\\int|\\frac|\\sqrt|<=|>=|==|!=|=|\^|_|\+|-)")
 _WORD_PATTERN = re.compile(r"[A-Za-z\u4e00-\u9fff]+")
-_BLOCK_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6", "p", "pre", "code", "ul", "ol", "table", "img", "figure", "figcaption", "math"}
+_BLOCK_TAGS = {
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "p",
+    "pre",
+    "code",
+    "ul",
+    "ol",
+    "table",
+    "img",
+    "figure",
+    "figcaption",
+    "math",
+}
 _RELATION_PRIORITY = {
     "section_parent": 0.95,
     "section_child": 0.95,
@@ -155,7 +173,12 @@ class StructuredContentCleaner:
 
     def clean_non_pdf_text(self, *, text: str, source_type: SourceType) -> tuple[str, list[str]]:
         cleaned_text = text
-        applied_rules = ["normalize_newlines", "trim_line_whitespace", "collapse_multi_spaces", "preserve_structure"]
+        applied_rules = [
+            "normalize_newlines",
+            "trim_line_whitespace",
+            "collapse_multi_spaces",
+            "preserve_structure",
+        ]
 
         if source_type is SourceType.JSON:
             normalized_json = self._normalize_json_text(text)
@@ -168,7 +191,9 @@ class StructuredContentCleaner:
             applied_rules.append("repair_hyphenated_linebreaks")
         return cleaned_text, applied_rules
 
-    def build_blocks(self, *, pages: list[ParsedPage], title: str | None, include_page_markers: bool = True) -> list[StructuredBlock]:
+    def build_blocks(
+        self, *, pages: list[ParsedPage], title: str | None, include_page_markers: bool = True
+    ) -> list[StructuredBlock]:
         document = self.build_document_from_pages(
             doc_id=str(uuid4()),
             source_type=SourceType.PDF,
@@ -215,7 +240,8 @@ class StructuredContentCleaner:
                             "page_images": page.metadata.get("images", []),
                             "page_marker_detected": marker_detected,
                             "source_page_count": page.metadata.get("source_page_count"),
-                            "parser_source": page.parser_source or page.metadata.get("parser_source"),
+                            "parser_source": page.parser_source
+                            or page.metadata.get("parser_source"),
                             "parser_block_id": None,
                             "bbox": None,
                             "layout_role": "page_marker",
@@ -255,6 +281,7 @@ class StructuredContentCleaner:
         self._classify_layout_roles(document)
         self._build_relationship_graph(document)
         return document
+
     def build_document_from_non_pdf(
         self,
         *,
@@ -269,13 +296,26 @@ class StructuredContentCleaner:
         page_label = page_label or str(page_number)
 
         if source_type is SourceType.CSV:
-            blocks = self._build_csv_blocks(doc_id=doc_id, title=title, text=text, page_number=page_number, page_label=page_label)
+            blocks = self._build_csv_blocks(
+                doc_id=doc_id,
+                title=title,
+                text=text,
+                page_number=page_number,
+                page_label=page_label,
+            )
             cleaning_rules.append("csv_table_modeling")
             document = StructuredDocument(
                 doc_id=doc_id,
                 source_type=source_type,
                 title=title,
-                pages=[StructuredPage(page_number=page_number, page_label=page_label, text=cleaned_text, parser_source="csv")],
+                pages=[
+                    StructuredPage(
+                        page_number=page_number,
+                        page_label=page_label,
+                        text=cleaned_text,
+                        parser_source="csv",
+                    )
+                ],
                 blocks=blocks,
                 relations=[],
                 metadata={},
@@ -307,7 +347,9 @@ class StructuredContentCleaner:
                 cleaning_rules.append("html_dom_structuring")
                 return html_document, cleaning_rules
 
-        page = StructuredPage(page_number=page_number, page_label=page_label, text=cleaned_text, parser_source="text")
+        page = StructuredPage(
+            page_number=page_number, page_label=page_label, text=cleaned_text, parser_source="text"
+        )
         document = self.build_document_from_pages(
             doc_id=doc_id,
             source_type=source_type,
@@ -387,7 +429,9 @@ class StructuredContentCleaner:
 
             if item_type == "image":
                 image_metadata = metadata | (self._extract_image_metadata(text.strip()) or {})
-                image_text = self._render_image_text(image_metadata) if image_metadata else text.strip()
+                image_text = (
+                    self._render_image_text(image_metadata) if image_metadata else text.strip()
+                )
                 blocks.append(
                     self._new_block(
                         block_type="image",
@@ -430,7 +474,8 @@ class StructuredContentCleaner:
                         section_path=heading_stack,
                         bbox=item.bbox,
                         layout_role="body",
-                        extra_metadata=metadata | self._build_formula_metadata(text=text, source=item_type or "parser"),
+                        extra_metadata=metadata
+                        | self._build_formula_metadata(text=text, source=item_type or "parser"),
                     )
                 )
                 order += 1
@@ -541,7 +586,15 @@ class StructuredContentCleaner:
                         index += 1
                         break
                     index += 1
-                blocks.append(self._new_block(block_type="code", text="\n".join(block_lines).strip(), page=page, order=order, section_path=heading_stack))
+                blocks.append(
+                    self._new_block(
+                        block_type="code",
+                        text="\n".join(block_lines).strip(),
+                        page=page,
+                        order=order,
+                        section_path=heading_stack,
+                    )
+                )
                 order += 1
                 continue
 
@@ -554,7 +607,9 @@ class StructuredContentCleaner:
                         page=page,
                         order=order,
                         section_path=heading_stack,
-                        extra_metadata=self._build_formula_metadata(text=formula_text, source="markdown"),
+                        extra_metadata=self._build_formula_metadata(
+                            text=formula_text, source="markdown"
+                        ),
                     )
                 )
                 order += 1
@@ -579,7 +634,16 @@ class StructuredContentCleaner:
             image_metadata = self._extract_image_metadata(stripped)
             if image_metadata is not None:
                 image_text = self._render_image_text(image_metadata)
-                blocks.append(self._new_block(block_type="image", text=image_text, page=page, order=order, section_path=heading_stack, extra_metadata=image_metadata))
+                blocks.append(
+                    self._new_block(
+                        block_type="image",
+                        text=image_text,
+                        page=page,
+                        order=order,
+                        section_path=heading_stack,
+                        extra_metadata=image_metadata,
+                    )
+                )
                 order += 1
                 index += 1
                 continue
@@ -590,7 +654,9 @@ class StructuredContentCleaner:
                 while index < len(page_lines) and self._is_table_row(page_lines[index].strip()):
                     block_lines.append(page_lines[index])
                     index += 1
-                table_text, table_metadata = self._linearize_table_block("\n".join(block_lines).strip())
+                table_text, table_metadata = self._linearize_table_block(
+                    "\n".join(block_lines).strip()
+                )
                 blocks.append(
                     self._new_block(
                         block_type="table",
@@ -598,7 +664,8 @@ class StructuredContentCleaner:
                         page=page,
                         order=order,
                         section_path=heading_stack,
-                        extra_metadata=table_metadata | {"raw_table_text": "\n".join(block_lines).strip()},
+                        extra_metadata=table_metadata
+                        | {"raw_table_text": "\n".join(block_lines).strip()},
                     )
                 )
                 order += 1
@@ -611,14 +678,31 @@ class StructuredContentCleaner:
                     candidate = page_lines[index].strip()
                     if not candidate:
                         break
-                    if _HEADING_PATTERN.match(candidate) or _FENCE_PATTERN.match(candidate) or self._is_table_row(candidate) or self._extract_image_metadata(candidate) is not None or self._is_caption_line(candidate) or self._is_formula_start(candidate):
+                    if (
+                        _HEADING_PATTERN.match(candidate)
+                        or _FENCE_PATTERN.match(candidate)
+                        or self._is_table_row(candidate)
+                        or self._extract_image_metadata(candidate) is not None
+                        or self._is_caption_line(candidate)
+                        or self._is_formula_start(candidate)
+                    ):
                         break
-                    if _LIST_ITEM_PATTERN.match(candidate) or page_lines[index].startswith((" ", "\t")):
+                    if _LIST_ITEM_PATTERN.match(candidate) or page_lines[index].startswith(
+                        (" ", "\t")
+                    ):
                         block_lines.append(page_lines[index])
                         index += 1
                         continue
                     break
-                blocks.append(self._new_block(block_type="list", text="\n".join(block_lines).strip(), page=page, order=order, section_path=heading_stack))
+                blocks.append(
+                    self._new_block(
+                        block_type="list",
+                        text="\n".join(block_lines).strip(),
+                        page=page,
+                        order=order,
+                        section_path=heading_stack,
+                    )
+                )
                 order += 1
                 continue
 
@@ -630,7 +714,9 @@ class StructuredContentCleaner:
                         page=page,
                         order=order,
                         section_path=heading_stack,
-                        extra_metadata=self._build_formula_metadata(text=stripped, source="heuristic"),
+                        extra_metadata=self._build_formula_metadata(
+                            text=stripped, source="heuristic"
+                        ),
                     )
                 )
                 order += 1
@@ -643,18 +729,36 @@ class StructuredContentCleaner:
                 candidate = page_lines[index].strip()
                 if not candidate:
                     break
-                if _HEADING_PATTERN.match(candidate) or _FENCE_PATTERN.match(candidate) or self._is_table_row(candidate) or _LIST_ITEM_PATTERN.match(candidate) or self._extract_image_metadata(candidate) is not None or self._is_caption_line(candidate) or self._is_formula_start(candidate):
+                if (
+                    _HEADING_PATTERN.match(candidate)
+                    or _FENCE_PATTERN.match(candidate)
+                    or self._is_table_row(candidate)
+                    or _LIST_ITEM_PATTERN.match(candidate)
+                    or self._extract_image_metadata(candidate) is not None
+                    or self._is_caption_line(candidate)
+                    or self._is_formula_start(candidate)
+                ):
                     break
                 if self._looks_like_formula_block(candidate):
                     break
                 block_lines.append(page_lines[index])
                 index += 1
-            blocks.append(self._new_block(block_type="paragraph", text="\n".join(block_lines).strip(), page=page, order=order, section_path=heading_stack))
+            blocks.append(
+                self._new_block(
+                    block_type="paragraph",
+                    text="\n".join(block_lines).strip(),
+                    page=page,
+                    order=order,
+                    section_path=heading_stack,
+                )
+            )
             order += 1
 
         return blocks, heading_stack, order
 
-    def _build_csv_blocks(self, *, doc_id: str, title: str | None, text: str, page_number: int, page_label: str) -> list[StructuredBlock]:
+    def _build_csv_blocks(
+        self, *, doc_id: str, title: str | None, text: str, page_number: int, page_label: str
+    ) -> list[StructuredBlock]:
         rows = list(csv.reader(text.splitlines()))
         if not rows:
             return []
@@ -687,7 +791,9 @@ class StructuredContentCleaner:
             )
         ]
 
-    def _build_json_document(self, *, doc_id: str, title: str | None, text: str, page_number: int, page_label: str) -> StructuredDocument:
+    def _build_json_document(
+        self, *, doc_id: str, title: str | None, text: str, page_number: int, page_label: str
+    ) -> StructuredDocument:
         try:
             payload = json.loads(text)
         except json.JSONDecodeError:
@@ -697,7 +803,10 @@ class StructuredContentCleaner:
         order = 0
         if isinstance(payload, list) and self._is_homogeneous_object_list(payload):
             headers = list(payload[0].keys()) if payload else []
-            rows = [[self._stringify_json_scalar(item.get(header)) for header in headers] for item in payload]
+            rows = [
+                [self._stringify_json_scalar(item.get(header)) for header in headers]
+                for item in payload
+            ]
             table_text = self._linearize_rows(headers=headers, rows=rows)
             blocks.append(
                 StructuredBlock(
@@ -724,19 +833,35 @@ class StructuredContentCleaner:
                 )
             )
         else:
-            blocks.extend(self._flatten_json_to_blocks(payload=payload, page_number=page_number, page_label=page_label, section_path=[title] if title else [], starting_order=order))
+            blocks.extend(
+                self._flatten_json_to_blocks(
+                    payload=payload,
+                    page_number=page_number,
+                    page_label=page_label,
+                    section_path=[title] if title else [],
+                    starting_order=order,
+                )
+            )
 
         document = StructuredDocument(
             doc_id=doc_id,
             source_type=SourceType.JSON,
             title=title,
-            pages=[StructuredPage(page_number=page_number, page_label=page_label, text=self.clean_ingest_text(text), parser_source="json")],
+            pages=[
+                StructuredPage(
+                    page_number=page_number,
+                    page_label=page_label,
+                    text=self.clean_ingest_text(text),
+                    parser_source="json",
+                )
+            ],
             blocks=blocks,
             relations=[],
             metadata={},
         )
         self._build_relationship_graph(document)
         return document
+
     def _flatten_json_to_blocks(
         self,
         *,
@@ -766,17 +891,35 @@ class StructuredContentCleaner:
                             order=order,
                             section_path=next_section,
                             layout_role="body",
-                            metadata={"heading_level": len(next_section), "bbox": None, "parser_block_id": next_path, "parser_source": "json", "related_block_ids": [], "references_figures": [], "references_tables": []},
+                            metadata={
+                                "heading_level": len(next_section),
+                                "bbox": None,
+                                "parser_block_id": next_path,
+                                "parser_source": "json",
+                                "related_block_ids": [],
+                                "references_figures": [],
+                                "references_tables": [],
+                            },
                         )
                     )
                     order += 1
-                    child_blocks = self._flatten_json_to_blocks(payload=value, page_number=page_number, page_label=page_label, section_path=next_section, starting_order=order, path_prefix=next_path)
+                    child_blocks = self._flatten_json_to_blocks(
+                        payload=value,
+                        page_number=page_number,
+                        page_label=page_label,
+                        section_path=next_section,
+                        starting_order=order,
+                        path_prefix=next_path,
+                    )
                     blocks.extend(child_blocks)
                     order = max((block.order for block in child_blocks), default=order - 1) + 1
                     continue
                 if isinstance(value, list) and self._is_homogeneous_object_list(value):
                     headers = list(value[0].keys()) if value else []
-                    rows = [[self._stringify_json_scalar(item.get(header)) for header in headers] for item in value]
+                    rows = [
+                        [self._stringify_json_scalar(item.get(header)) for header in headers]
+                        for item in value
+                    ]
                     table_text = self._linearize_rows(headers=headers, rows=rows)
                     blocks.append(
                         StructuredBlock(
@@ -789,7 +932,17 @@ class StructuredContentCleaner:
                             order=order,
                             section_path=[*section_path, str(key)],
                             layout_role="body",
-                            metadata={"table_headers": headers, "table_row_count": len(rows), "json_table": True, "bbox": None, "parser_block_id": next_path, "parser_source": "json", "related_block_ids": [], "references_figures": [], "references_tables": []},
+                            metadata={
+                                "table_headers": headers,
+                                "table_row_count": len(rows),
+                                "json_table": True,
+                                "bbox": None,
+                                "parser_block_id": next_path,
+                                "parser_source": "json",
+                                "related_block_ids": [],
+                                "references_figures": [],
+                                "references_tables": [],
+                            },
                         )
                     )
                     order += 1
@@ -809,7 +962,14 @@ class StructuredContentCleaner:
                                 order=order,
                                 section_path=[*section_path, str(key)],
                                 layout_role="body",
-                                metadata={"bbox": None, "parser_block_id": next_path, "parser_source": "json", "related_block_ids": [], "references_figures": [], "references_tables": []},
+                                metadata={
+                                    "bbox": None,
+                                    "parser_block_id": next_path,
+                                    "parser_source": "json",
+                                    "related_block_ids": [],
+                                    "references_figures": [],
+                                    "references_tables": [],
+                                },
                             )
                         )
                         order += 1
@@ -826,7 +986,14 @@ class StructuredContentCleaner:
                         order=order,
                         section_path=section_path,
                         layout_role="body",
-                        metadata={"bbox": None, "parser_block_id": next_path, "parser_source": "json", "related_block_ids": [], "references_figures": [], "references_tables": []},
+                        metadata={
+                            "bbox": None,
+                            "parser_block_id": next_path,
+                            "parser_source": "json",
+                            "related_block_ids": [],
+                            "references_figures": [],
+                            "references_tables": [],
+                        },
                     )
                 )
                 order += 1
@@ -844,12 +1011,28 @@ class StructuredContentCleaner:
                 order=starting_order,
                 section_path=section_path,
                 layout_role="body",
-                metadata={"bbox": None, "parser_block_id": path_prefix or "root", "parser_source": "json", "related_block_ids": [], "references_figures": [], "references_tables": []},
+                metadata={
+                    "bbox": None,
+                    "parser_block_id": path_prefix or "root",
+                    "parser_source": "json",
+                    "related_block_ids": [],
+                    "references_figures": [],
+                    "references_tables": [],
+                },
             )
         )
         return blocks
 
-    def _try_build_html_like_document(self, *, doc_id: str, source_type: SourceType, title: str | None, raw_text: str, page_number: int, page_label: str) -> StructuredDocument | None:
+    def _try_build_html_like_document(
+        self,
+        *,
+        doc_id: str,
+        source_type: SourceType,
+        title: str | None,
+        raw_text: str,
+        page_number: int,
+        page_label: str,
+    ) -> StructuredDocument | None:
         if "<" not in raw_text or ">" not in raw_text:
             return None
         try:
@@ -859,11 +1042,18 @@ class StructuredContentCleaner:
 
         soup = BeautifulSoup(raw_text, "html.parser")
         body = soup.body or soup
-        elements = [element for element in body.descendants if getattr(element, "name", None) in _BLOCK_TAGS]
+        elements = [
+            element for element in body.descendants if getattr(element, "name", None) in _BLOCK_TAGS
+        ]
         if not elements:
             return None
 
-        page = StructuredPage(page_number=page_number, page_label=page_label, text=self.clean_ingest_text(body.get_text("\n")), parser_source="html")
+        page = StructuredPage(
+            page_number=page_number,
+            page_label=page_label,
+            text=self.clean_ingest_text(body.get_text("\n")),
+            parser_source="html",
+        )
         blocks: list[StructuredBlock] = []
         heading_stack = [title] if title else []
         order = 0
@@ -879,73 +1069,250 @@ class StructuredContentCleaner:
                 continue
 
             if tag_name.startswith("h") and len(tag_name) == 2 and tag_name[1].isdigit():
-                heading_stack = self._update_heading_stack(heading_stack=heading_stack, level=int(tag_name[1]), title=text_value, root_title=title)
-                blocks.append(StructuredBlock(block_id=str(uuid4()), block_type="section_header", text=text_value, normalized_text=self._normalize_relation_text(text_value), page_number=page_number, page_label=page_label, order=order, section_path=list(heading_stack), layout_role="body", metadata={"heading_level": int(tag_name[1]), "bbox": None, "parser_block_id": None, "parser_source": "html", "related_block_ids": [], "references_figures": [], "references_tables": []}))
+                heading_stack = self._update_heading_stack(
+                    heading_stack=heading_stack,
+                    level=int(tag_name[1]),
+                    title=text_value,
+                    root_title=title,
+                )
+                blocks.append(
+                    StructuredBlock(
+                        block_id=str(uuid4()),
+                        block_type="section_header",
+                        text=text_value,
+                        normalized_text=self._normalize_relation_text(text_value),
+                        page_number=page_number,
+                        page_label=page_label,
+                        order=order,
+                        section_path=list(heading_stack),
+                        layout_role="body",
+                        metadata={
+                            "heading_level": int(tag_name[1]),
+                            "bbox": None,
+                            "parser_block_id": None,
+                            "parser_source": "html",
+                            "related_block_ids": [],
+                            "references_figures": [],
+                            "references_tables": [],
+                        },
+                    )
+                )
                 order += 1
                 continue
 
             if tag_name in {"pre", "code"}:
-                blocks.append(self._new_non_pdf_block("code", text_value, page_number, page_label, order, heading_stack, "html"))
+                blocks.append(
+                    self._new_non_pdf_block(
+                        "code", text_value, page_number, page_label, order, heading_stack, "html"
+                    )
+                )
                 order += 1
                 continue
 
             if tag_name in {"ul", "ol"}:
-                list_lines = [f"- {self.clean_ingest_text(item.get_text(' '))}" for item in element.find_all("li", recursive=False)]
+                list_lines = [
+                    f"- {self.clean_ingest_text(item.get_text(' '))}"
+                    for item in element.find_all("li", recursive=False)
+                ]
                 list_text = "\n".join(line for line in list_lines if line.strip())
                 if list_text:
-                    blocks.append(self._new_non_pdf_block("list", list_text, page_number, page_label, order, heading_stack, "html"))
+                    blocks.append(
+                        self._new_non_pdf_block(
+                            "list", list_text, page_number, page_label, order, heading_stack, "html"
+                        )
+                    )
                     order += 1
                 continue
 
             if tag_name == "table":
                 table_text, table_metadata = self._linearize_html_table(element)
-                blocks.append(self._new_non_pdf_block("table", table_text, page_number, page_label, order, heading_stack, "html", extra_metadata=table_metadata))
+                blocks.append(
+                    self._new_non_pdf_block(
+                        "table",
+                        table_text,
+                        page_number,
+                        page_label,
+                        order,
+                        heading_stack,
+                        "html",
+                        extra_metadata=table_metadata,
+                    )
+                )
                 order += 1
                 continue
 
             if tag_name == "img":
-                image_metadata = {"image_alt_text": element.get("alt"), "image_source": element.get("src"), "image_title": element.get("title")}
-                blocks.append(self._new_non_pdf_block("image", self._render_image_text({key: value for key, value in image_metadata.items() if value}), page_number, page_label, order, heading_stack, "html", extra_metadata={key: value for key, value in image_metadata.items() if value}))
+                image_metadata = {
+                    "image_alt_text": element.get("alt"),
+                    "image_source": element.get("src"),
+                    "image_title": element.get("title"),
+                }
+                blocks.append(
+                    self._new_non_pdf_block(
+                        "image",
+                        self._render_image_text(
+                            {key: value for key, value in image_metadata.items() if value}
+                        ),
+                        page_number,
+                        page_label,
+                        order,
+                        heading_stack,
+                        "html",
+                        extra_metadata={
+                            key: value for key, value in image_metadata.items() if value
+                        },
+                    )
+                )
                 order += 1
                 continue
 
             if tag_name == "figcaption":
-                blocks.append(self._new_non_pdf_block("caption", text_value, page_number, page_label, order, heading_stack, "html", extra_metadata=self._extract_caption_metadata(text_value)))
+                blocks.append(
+                    self._new_non_pdf_block(
+                        "caption",
+                        text_value,
+                        page_number,
+                        page_label,
+                        order,
+                        heading_stack,
+                        "html",
+                        extra_metadata=self._extract_caption_metadata(text_value),
+                    )
+                )
                 order += 1
                 continue
 
             if tag_name == "math" or self._looks_like_formula_block(text_value):
-                blocks.append(self._new_non_pdf_block("formula", text_value, page_number, page_label, order, heading_stack, "html", extra_metadata=self._build_formula_metadata(text=text_value, source="html")))
+                blocks.append(
+                    self._new_non_pdf_block(
+                        "formula",
+                        text_value,
+                        page_number,
+                        page_label,
+                        order,
+                        heading_stack,
+                        "html",
+                        extra_metadata=self._build_formula_metadata(text=text_value, source="html"),
+                    )
+                )
                 order += 1
                 continue
 
             if self._is_caption_line(text_value):
-                blocks.append(self._new_non_pdf_block("caption", text_value, page_number, page_label, order, heading_stack, "html", extra_metadata=self._extract_caption_metadata(text_value)))
+                blocks.append(
+                    self._new_non_pdf_block(
+                        "caption",
+                        text_value,
+                        page_number,
+                        page_label,
+                        order,
+                        heading_stack,
+                        "html",
+                        extra_metadata=self._extract_caption_metadata(text_value),
+                    )
+                )
                 order += 1
                 continue
 
-            blocks.append(self._new_non_pdf_block("paragraph", text_value, page_number, page_label, order, heading_stack, "html"))
+            blocks.append(
+                self._new_non_pdf_block(
+                    "paragraph", text_value, page_number, page_label, order, heading_stack, "html"
+                )
+            )
             order += 1
 
         if not blocks:
             return None
 
-        document = StructuredDocument(doc_id=doc_id, source_type=source_type, title=title, pages=[page], blocks=blocks, relations=[], metadata={})
+        document = StructuredDocument(
+            doc_id=doc_id,
+            source_type=source_type,
+            title=title,
+            pages=[page],
+            blocks=blocks,
+            relations=[],
+            metadata={},
+        )
         self._build_relationship_graph(document)
         return document
 
-    def _new_non_pdf_block(self, block_type: str, text: str, page_number: int, page_label: str, order: int, section_path: list[str], parser_source: str, extra_metadata: dict[str, Any] | None = None) -> StructuredBlock:
-        metadata = {"bbox": None, "parser_block_id": None, "parser_source": parser_source, "related_block_ids": [], "references_figures": [], "references_tables": []}
+    def _new_non_pdf_block(
+        self,
+        block_type: str,
+        text: str,
+        page_number: int,
+        page_label: str,
+        order: int,
+        section_path: list[str],
+        parser_source: str,
+        extra_metadata: dict[str, Any] | None = None,
+    ) -> StructuredBlock:
+        metadata = {
+            "bbox": None,
+            "parser_block_id": None,
+            "parser_source": parser_source,
+            "related_block_ids": [],
+            "references_figures": [],
+            "references_tables": [],
+        }
         if extra_metadata:
             metadata.update(extra_metadata)
         layout_role = "caption" if block_type == "caption" else "body"
-        return StructuredBlock(block_id=str(uuid4()), block_type=block_type, text=text, normalized_text=self._normalize_relation_text(text), page_number=page_number, page_label=page_label, order=order, bbox=None, section_path=list(section_path), layout_role=layout_role, metadata=metadata)
+        return StructuredBlock(
+            block_id=str(uuid4()),
+            block_type=block_type,
+            text=text,
+            normalized_text=self._normalize_relation_text(text),
+            page_number=page_number,
+            page_label=page_label,
+            order=order,
+            bbox=None,
+            section_path=list(section_path),
+            layout_role=layout_role,
+            metadata=metadata,
+        )
 
-    def _new_block(self, *, block_type: str, text: str, page: StructuredPage, order: int, section_path: list[str], bbox: dict[str, float] | None = None, layout_role: str = "body", extra_metadata: dict[str, Any] | None = None) -> StructuredBlock:
-        metadata = {"page_boxes": page.metadata.get("page_boxes", []), "source_page_count": page.metadata.get("source_page_count"), "page_label": page.page_label, "related_block_ids": [], "references_figures": [], "references_tables": [], "bbox": bbox, "parser_block_id": None, "parser_source": page.parser_source or page.metadata.get("parser_source"), "page_width": page.width, "page_height": page.height}
+    def _new_block(
+        self,
+        *,
+        block_type: str,
+        text: str,
+        page: StructuredPage,
+        order: int,
+        section_path: list[str],
+        bbox: dict[str, float] | None = None,
+        layout_role: str = "body",
+        extra_metadata: dict[str, Any] | None = None,
+    ) -> StructuredBlock:
+        metadata = {
+            "page_boxes": page.metadata.get("page_boxes", []),
+            "source_page_count": page.metadata.get("source_page_count"),
+            "page_label": page.page_label,
+            "related_block_ids": [],
+            "references_figures": [],
+            "references_tables": [],
+            "bbox": bbox,
+            "parser_block_id": None,
+            "parser_source": page.parser_source or page.metadata.get("parser_source"),
+            "page_width": page.width,
+            "page_height": page.height,
+        }
         if extra_metadata:
             metadata.update(extra_metadata)
-        return StructuredBlock(block_id=str(uuid4()), block_type=block_type, text=text, normalized_text=self._normalize_relation_text(text), page_number=page.page_number, page_label=page.page_label, order=order, bbox=bbox, section_path=list(section_path), layout_role=layout_role, metadata=metadata)
+        return StructuredBlock(
+            block_id=str(uuid4()),
+            block_type=block_type,
+            text=text,
+            normalized_text=self._normalize_relation_text(text),
+            page_number=page.page_number,
+            page_label=page.page_label,
+            order=order,
+            bbox=bbox,
+            section_path=list(section_path),
+            layout_role=layout_role,
+            metadata=metadata,
+        )
+
     def _build_relationship_graph(self, document: StructuredDocument) -> None:
         relations: list[BlockRelation] = []
         blocks = sorted(document.blocks, key=lambda item: (item.page_number or 0, item.order))
@@ -954,7 +1321,11 @@ class StructuredContentCleaner:
             page_groups.setdefault(block.page_number, []).append(block)
 
         for page_blocks in page_groups.values():
-            ordered = [block for block in sorted(page_blocks, key=lambda item: item.order) if block.block_type != "page_marker"]
+            ordered = [
+                block
+                for block in sorted(page_blocks, key=lambda item: item.order)
+                if block.block_type != "page_marker"
+            ]
             for previous, current in zip(ordered, ordered[1:]):
                 relations.append(self._relation(previous.block_id, current.block_id, "next_block"))
                 relations.append(self._relation(current.block_id, previous.block_id, "prev_block"))
@@ -967,8 +1338,12 @@ class StructuredContentCleaner:
                 parent_key = tuple(block.section_path[:-1])
                 if parent_key and parent_key in headers_by_path:
                     parent = headers_by_path[parent_key]
-                    relations.append(self._relation(block.block_id, parent.block_id, "section_parent"))
-                    relations.append(self._relation(parent.block_id, block.block_id, "section_child"))
+                    relations.append(
+                        self._relation(block.block_id, parent.block_id, "section_parent")
+                    )
+                    relations.append(
+                        self._relation(parent.block_id, block.block_id, "section_child")
+                    )
                 continue
             if path_key and path_key in headers_by_path:
                 parent = headers_by_path[path_key]
@@ -976,20 +1351,30 @@ class StructuredContentCleaner:
                 relations.append(self._relation(parent.block_id, block.block_id, "section_child"))
 
         caption_targets: dict[tuple[str, str], StructuredBlock] = {}
-        typed_targets: dict[str, dict[str, StructuredBlock]] = {"figure": {}, "table": {}, "formula": {}}
+        typed_targets: dict[str, dict[str, StructuredBlock]] = {
+            "figure": {},
+            "table": {},
+            "formula": {},
+        }
         for block in blocks:
             identifier = self._extract_reference_identifier(block)
             if identifier is None:
                 continue
             ref_kind, ref_number = identifier
-            if ((block.block_type == "image" and ref_kind == "figure") or (block.block_type == "table" and ref_kind == "table") or (block.block_type == "formula" and ref_kind == "formula")):
+            if (
+                (block.block_type == "image" and ref_kind == "figure")
+                or (block.block_type == "table" and ref_kind == "table")
+                or (block.block_type == "formula" and ref_kind == "formula")
+            ):
                 typed_targets[ref_kind][ref_number] = block
                 caption_targets[(ref_kind, ref_number)] = block
 
         captions = [block for block in blocks if block.block_type == "caption"]
         for caption in captions:
             caption_identifier = self._extract_reference_identifier(caption)
-            best_target: StructuredBlock | None = caption_targets.get(caption_identifier) if caption_identifier is not None else None
+            best_target: StructuredBlock | None = (
+                caption_targets.get(caption_identifier) if caption_identifier is not None else None
+            )
             if best_target is None:
                 best_target = self._find_best_caption_target(caption, blocks)
             if best_target is None:
@@ -997,12 +1382,18 @@ class StructuredContentCleaner:
             relations.append(self._relation(caption.block_id, best_target.block_id, "caption_of"))
             relations.append(self._relation(best_target.block_id, caption.block_id, "has_caption"))
             if best_target.block_type == "table":
-                relations.append(self._relation(caption.block_id, best_target.block_id, "table_row_context", weight=0.86))
+                relations.append(
+                    self._relation(
+                        caption.block_id, best_target.block_id, "table_row_context", weight=0.86
+                    )
+                )
             best_target.metadata["caption_text"] = caption.text
             best_target.metadata["caption_type"] = caption.metadata.get("caption_type")
             best_target.metadata["caption_source_page"] = caption.page_number
             if caption_identifier is not None:
-                typed_targets.setdefault(caption_identifier[0], {})[caption_identifier[1]] = best_target
+                typed_targets.setdefault(caption_identifier[0], {})[caption_identifier[1]] = (
+                    best_target
+                )
 
         for block in blocks:
             if block.block_type not in {"paragraph", "list", "code", "caption"}:
@@ -1017,7 +1408,11 @@ class StructuredContentCleaner:
                 relations.append(self._relation(block.block_id, target.block_id, "references"))
                 relations.append(self._relation(target.block_id, block.block_id, "referenced_by"))
                 if ref_kind == "formula":
-                    relations.append(self._relation(block.block_id, target.block_id, "formula_explains", weight=0.88))
+                    relations.append(
+                        self._relation(
+                            block.block_id, target.block_id, "formula_explains", weight=0.88
+                        )
+                    )
                     formula_refs.append(ref_number)
                 elif ref_kind == "figure":
                     figure_refs.append(ref_number)
@@ -1047,17 +1442,37 @@ class StructuredContentCleaner:
                         distances.append((distance, candidate))
                 for distance, candidate in sorted(distances, key=lambda item: item[0])[:4]:
                     weight = max(0.3, 1.0 - distance / max(diagonal, 1.0))
-                    relations.append(self._relation(block.block_id, candidate.block_id, "same_page_near", weight=round(weight, 4)))
+                    relations.append(
+                        self._relation(
+                            block.block_id,
+                            candidate.block_id,
+                            "same_page_near",
+                            weight=round(weight, 4),
+                        )
+                    )
 
-        continued_candidates = [block for block in blocks if block.block_type in {"paragraph", "list", "table", "formula"}]
+        continued_candidates = [
+            block
+            for block in blocks
+            if block.block_type in {"paragraph", "list", "table", "formula"}
+        ]
         for previous, current in zip(continued_candidates, continued_candidates[1:]):
-            if previous.page_number is None or current.page_number is None or current.page_number != previous.page_number + 1:
+            if (
+                previous.page_number is None
+                or current.page_number is None
+                or current.page_number != previous.page_number + 1
+            ):
                 continue
-            if previous.block_type != current.block_type or previous.section_path != current.section_path:
+            if (
+                previous.block_type != current.block_type
+                or previous.section_path != current.section_path
+            ):
                 continue
             if not self._looks_like_continuation(previous.text, current.text):
                 continue
-            relations.append(self._relation(current.block_id, previous.block_id, "continued_from", weight=0.8))
+            relations.append(
+                self._relation(current.block_id, previous.block_id, "continued_from", weight=0.8)
+            )
 
         deduped_relations = self._dedupe_relations(relations)
         document.relations = deduped_relations
@@ -1067,11 +1482,20 @@ class StructuredContentCleaner:
 
         for block in blocks:
             edges = outgoing_by_source.get(block.block_id, [])
-            graph_edges = [{"type": edge.relation_type, "target_block_id": edge.target_block_id, "weight": edge.weight} for edge in edges]
+            graph_edges = [
+                {
+                    "type": edge.relation_type,
+                    "target_block_id": edge.target_block_id,
+                    "weight": edge.weight,
+                }
+                for edge in edges
+            ]
             graph_neighbors = list(dict.fromkeys(edge.target_block_id for edge in edges))
             block.metadata["graph_edges"] = graph_edges
             block.metadata["graph_neighbors"] = graph_neighbors
-            block.metadata["related_block_ids"] = list(dict.fromkeys([*block.metadata.get("related_block_ids", []), *graph_neighbors]))
+            block.metadata["related_block_ids"] = list(
+                dict.fromkeys([*block.metadata.get("related_block_ids", []), *graph_neighbors])
+            )
             block.metadata["layout_role"] = block.layout_role
             block.metadata["bbox"] = block.bbox
             block.metadata["block_order"] = block.order
@@ -1132,7 +1556,14 @@ class StructuredContentCleaner:
 
         page_height = float(page.height or 0.0)
         tolerance = min(18.0, max(6.0, page_height * 0.008)) if page_height else 10.0
-        sorted_items = sorted(page.layout_items, key=lambda item: (float((item.bbox or {}).get("y0", item.order)), float((item.bbox or {}).get("x0", 0.0)), item.order))
+        sorted_items = sorted(
+            page.layout_items,
+            key=lambda item: (
+                float((item.bbox or {}).get("y0", item.order)),
+                float((item.bbox or {}).get("x0", 0.0)),
+                item.order,
+            ),
+        )
         bands: list[list[ParsedLayoutItem]] = []
         for item in sorted_items:
             if not item.bbox:
@@ -1152,10 +1583,24 @@ class StructuredContentCleaner:
 
         ordered: list[ParsedLayoutItem] = []
         for band in bands:
-            ordered.extend(sorted(band, key=lambda item: (float((item.bbox or {}).get("x0", 0.0)), item.order)))
+            ordered.extend(
+                sorted(band, key=lambda item: (float((item.bbox or {}).get("x0", 0.0)), item.order))
+            )
         return ordered
-    def _relation(self, source_block_id: str, target_block_id: str, relation_type: str, weight: float | None = None) -> BlockRelation:
-        return BlockRelation(source_block_id=source_block_id, target_block_id=target_block_id, relation_type=relation_type, weight=weight if weight is not None else _RELATION_PRIORITY[relation_type])
+
+    def _relation(
+        self,
+        source_block_id: str,
+        target_block_id: str,
+        relation_type: str,
+        weight: float | None = None,
+    ) -> BlockRelation:
+        return BlockRelation(
+            source_block_id=source_block_id,
+            target_block_id=target_block_id,
+            relation_type=relation_type,
+            weight=weight if weight is not None else _RELATION_PRIORITY[relation_type],
+        )
 
     def _dedupe_relations(self, relations: list[BlockRelation]) -> list[BlockRelation]:
         unique: dict[tuple[str, str, str], BlockRelation] = {}
@@ -1179,7 +1624,23 @@ class StructuredContentCleaner:
             return "paragraph"
 
         normalized = item_type.lower().strip().replace("-", "_").replace(" ", "_")
-        mapping = {"title": "section_header", "heading": "section_header", "header": "section_header", "text": "paragraph", "para": "paragraph", "paragraph": "paragraph", "table": "table", "image": "image", "figure": "image", "caption": "caption", "code": "code", "formula": "formula", "equation": "formula", "list": "list", "bullet": "list"}
+        mapping = {
+            "title": "section_header",
+            "heading": "section_header",
+            "header": "section_header",
+            "text": "paragraph",
+            "para": "paragraph",
+            "paragraph": "paragraph",
+            "table": "table",
+            "image": "image",
+            "figure": "image",
+            "caption": "caption",
+            "code": "code",
+            "formula": "formula",
+            "equation": "formula",
+            "list": "list",
+            "bullet": "list",
+        }
         return mapping.get(normalized, normalized)
 
     def _resolve_page_marker(self, page: StructuredPage) -> tuple[str | None, bool]:
@@ -1203,7 +1664,9 @@ class StructuredContentCleaner:
             remaining.append(line)
         return remaining
 
-    def _update_heading_stack(self, *, heading_stack: list[str], level: int, title: str, root_title: str | None) -> list[str]:
+    def _update_heading_stack(
+        self, *, heading_stack: list[str], level: int, title: str, root_title: str | None
+    ) -> list[str]:
         if level <= 1:
             return [title]
         if not heading_stack:
@@ -1218,7 +1681,9 @@ class StructuredContentCleaner:
         start_marker = block_lines[0][:2]
         while index < len(lines):
             block_lines.append(lines[index].strip())
-            if lines[index].strip().startswith(start_marker) or _FORMULA_BLOCK_END_PATTERN.match(lines[index].strip()):
+            if lines[index].strip().startswith(start_marker) or _FORMULA_BLOCK_END_PATTERN.match(
+                lines[index].strip()
+            ):
                 index += 1
                 break
             index += 1
@@ -1239,11 +1704,25 @@ class StructuredContentCleaner:
 
     def _build_formula_metadata(self, *, text: str, source: str) -> dict[str, Any]:
         symbols = sorted(set(match.group(0) for match in _FORMULA_SYMBOL_PATTERN.finditer(text)))
-        return {"formula_format": "display_math" if "\n" in text or text.strip().startswith(("$$", "\\[")) else "inline_like", "formula_source": source, "formula_symbols": symbols, "formula_linearized_text": self._normalize_relation_text(text)}
+        return {
+            "formula_format": "display_math"
+            if "\n" in text or text.strip().startswith(("$$", "\\["))
+            else "inline_like",
+            "formula_source": source,
+            "formula_symbols": symbols,
+            "formula_linearized_text": self._normalize_relation_text(text),
+        }
 
-    def _find_best_caption_target(self, caption: StructuredBlock, blocks: list[StructuredBlock]) -> StructuredBlock | None:
+    def _find_best_caption_target(
+        self, caption: StructuredBlock, blocks: list[StructuredBlock]
+    ) -> StructuredBlock | None:
         expected_type = caption.metadata.get("caption_type")
-        candidates = [block for block in blocks if block.page_number == caption.page_number and block.block_type in {"image", "table", "formula"}]
+        candidates = [
+            block
+            for block in blocks
+            if block.page_number == caption.page_number
+            and block.block_type in {"image", "table", "formula"}
+        ]
         best_candidate: StructuredBlock | None = None
         best_distance = 10**9
         for candidate in candidates:
@@ -1269,7 +1748,10 @@ class StructuredContentCleaner:
         return self._normalize_reference_kind(match.group("kind")), match.group("number")
 
     def _extract_references(self, text: str) -> list[tuple[str, str]]:
-        return [(self._normalize_reference_kind(match.group("kind")), match.group("number")) for match in _REFERENCE_PATTERN.finditer(text)]
+        return [
+            (self._normalize_reference_kind(match.group("kind")), match.group("number"))
+            for match in _REFERENCE_PATTERN.finditer(text)
+        ]
 
     def _normalize_reference_kind(self, raw_kind: str) -> str:
         lowered = raw_kind.lower()
@@ -1305,28 +1787,49 @@ class StructuredContentCleaner:
         output.append(f"{prefix}={payload}")
 
     def _is_homogeneous_object_list(self, payload: Any) -> bool:
-        return bool(payload) and isinstance(payload, list) and all(isinstance(item, dict) for item in payload)
+        return (
+            bool(payload)
+            and isinstance(payload, list)
+            and all(isinstance(item, dict) for item in payload)
+        )
 
     def _stringify_json_scalar(self, value: Any) -> str:
         if isinstance(value, (dict, list)):
             return json.dumps(value, ensure_ascii=False)
         return "" if value is None else str(value)
 
-    def _linearize_any_table(self, *, text: str, metadata: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    def _linearize_any_table(
+        self, *, text: str, metadata: dict[str, Any]
+    ) -> tuple[str, dict[str, Any]]:
         if metadata.get("rows") and isinstance(metadata["rows"], list):
             rows = metadata["rows"]
             headers = metadata.get("headers") or []
             if rows and isinstance(rows[0], dict):
                 headers = headers or list(rows[0].keys())
-                data_rows = [[self._stringify_json_scalar(row.get(header)) for header in headers] for row in rows]
+                data_rows = [
+                    [self._stringify_json_scalar(row.get(header)) for header in headers]
+                    for row in rows
+                ]
                 table_text = self._linearize_rows(headers=headers, rows=data_rows)
-                return table_text, {"table_headers": headers, "table_row_count": len(data_rows), "raw_table_text": text}
+                return table_text, {
+                    "table_headers": headers,
+                    "table_row_count": len(data_rows),
+                    "raw_table_text": text,
+                }
         if self._is_table_row(text.splitlines()[0].strip()) if text.splitlines() else False:
             return self._linearize_table_block(text)
-        return text, {"table_headers": metadata.get("headers", []), "table_row_count": len(metadata.get("rows", [])), "raw_table_text": text}
+        return text, {
+            "table_headers": metadata.get("headers", []),
+            "table_row_count": len(metadata.get("rows", [])),
+            "raw_table_text": text,
+        }
 
     def _linearize_table_block(self, text: str) -> tuple[str, dict[str, Any]]:
-        rows = [self._split_table_row(line) for line in text.splitlines() if self._is_table_row(line.strip())]
+        rows = [
+            self._split_table_row(line)
+            for line in text.splitlines()
+            if self._is_table_row(line.strip())
+        ]
         if not rows:
             return text, {}
         headers = rows[0]
@@ -1343,7 +1846,11 @@ class StructuredContentCleaner:
         linearized_lines = [f"Table columns: {', '.join(headers)}"] if headers else ["Table"]
         for row_index, row in enumerate(rows, start=1):
             padded_row = row + [""] * (len(headers) - len(row))
-            assignments = [f"{header}={value.strip()}" for header, value in zip(headers, padded_row, strict=False) if header.strip() and value.strip()]
+            assignments = [
+                f"{header}={value.strip()}"
+                for header, value in zip(headers, padded_row, strict=False)
+                if header.strip() and value.strip()
+            ]
             if assignments:
                 linearized_lines.append(f"Row {row_index}: {'; '.join(assignments)}")
         return "\n".join(linearized_lines)
@@ -1352,14 +1859,19 @@ class StructuredContentCleaner:
         headers = [self.clean_ingest_text(cell.get_text(" ")) for cell in element.find_all("th")]
         rows: list[list[str]] = []
         for row in element.find_all("tr"):
-            cells = [self.clean_ingest_text(cell.get_text(" ")) for cell in row.find_all(["td", "th"])]
+            cells = [
+                self.clean_ingest_text(cell.get_text(" ")) for cell in row.find_all(["td", "th"])
+            ]
             if cells:
                 rows.append(cells)
         if headers and rows and rows[0] == headers:
             rows = rows[1:]
         elif not headers and rows:
             headers = [f"column_{index + 1}" for index in range(len(rows[0]))]
-        return self._linearize_rows(headers=headers, rows=rows), {"table_headers": headers, "table_row_count": len(rows)}
+        return self._linearize_rows(headers=headers, rows=rows), {
+            "table_headers": headers,
+            "table_row_count": len(rows),
+        }
 
     def _render_image_text(self, metadata: dict[str, Any]) -> str:
         image_lines = ["Image block"]
@@ -1376,12 +1888,25 @@ class StructuredContentCleaner:
     def _extract_image_metadata(self, line: str) -> dict[str, Any] | None:
         markdown_match = _MD_IMAGE_PATTERN.match(line)
         if markdown_match:
-            metadata = {"image_alt_text": markdown_match.group("alt").strip() or None, "image_source": markdown_match.group("src").strip(), "image_title": markdown_match.group("title").strip() if markdown_match.group("title") else None}
+            metadata = {
+                "image_alt_text": markdown_match.group("alt").strip() or None,
+                "image_source": markdown_match.group("src").strip(),
+                "image_title": markdown_match.group("title").strip()
+                if markdown_match.group("title")
+                else None,
+            }
             return {key: value for key, value in metadata.items() if value}
         html_match = _HTML_IMG_PATTERN.match(line)
         if html_match:
-            attrs = {match.group("name").lower(): match.group("value").strip() for match in _HTML_ATTR_PATTERN.finditer(html_match.group("attrs"))}
-            metadata = {"image_alt_text": attrs.get("alt"), "image_source": attrs.get("src"), "image_title": attrs.get("title")}
+            attrs = {
+                match.group("name").lower(): match.group("value").strip()
+                for match in _HTML_ATTR_PATTERN.finditer(html_match.group("attrs"))
+            }
+            metadata = {
+                "image_alt_text": attrs.get("alt"),
+                "image_source": attrs.get("src"),
+                "image_title": attrs.get("title"),
+            }
             filtered = {key: value for key, value in metadata.items() if value}
             return filtered or None
         return None
@@ -1419,12 +1944,22 @@ class StructuredContentCleaner:
         match = _HEADING_PATTERN.match(text.strip())
         return match.group("title").strip() if match else text.strip()
 
-    def _bbox_center_distance(self, left: dict[str, float] | None, right: dict[str, float] | None) -> float:
+    def _bbox_center_distance(
+        self, left: dict[str, float] | None, right: dict[str, float] | None
+    ) -> float:
         if not left or not right:
             return 10**9
-        left_center = ((float(left.get("x0", 0.0)) + float(left.get("x1", 0.0))) / 2.0, (float(left.get("y0", 0.0)) + float(left.get("y1", 0.0))) / 2.0)
-        right_center = ((float(right.get("x0", 0.0)) + float(right.get("x1", 0.0))) / 2.0, (float(right.get("y0", 0.0)) + float(right.get("y1", 0.0))) / 2.0)
-        return math.sqrt((left_center[0] - right_center[0]) ** 2 + (left_center[1] - right_center[1]) ** 2)
+        left_center = (
+            (float(left.get("x0", 0.0)) + float(left.get("x1", 0.0))) / 2.0,
+            (float(left.get("y0", 0.0)) + float(left.get("y1", 0.0))) / 2.0,
+        )
+        right_center = (
+            (float(right.get("x0", 0.0)) + float(right.get("x1", 0.0))) / 2.0,
+            (float(right.get("y0", 0.0)) + float(right.get("y1", 0.0))) / 2.0,
+        )
+        return math.sqrt(
+            (left_center[0] - right_center[0]) ** 2 + (left_center[1] - right_center[1]) ** 2
+        )
 
     def _looks_like_continuation(self, previous_text: str, current_text: str) -> bool:
         previous = previous_text.strip()
@@ -1443,6 +1978,3 @@ class StructuredContentCleaner:
     def _split_table_row(line: str) -> list[str]:
         stripped = line.strip().strip("|")
         return [cell.strip() for cell in stripped.split("|")]
-
-
-

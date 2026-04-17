@@ -60,6 +60,15 @@ class Settings(BaseSettings):
     retrieval_history_user_messages: int = Field(default=3, ge=0, le=20)
     pdf_min_text_chars: int = Field(default=120, ge=0)
     pdf_garbled_char_ratio: float = Field(default=0.35, ge=0.0, le=1.0)
+    mineru_enabled: bool = True
+    mineru_default_mode: str = "flash"
+    mineru_api_token: str | None = None
+    mineru_timeout_seconds: int = Field(default=180, ge=30, le=1800)
+    mineru_split_pages: bool = True
+    mineru_language: str = "ch"
+    mineru_default_sensitive: bool = False
+    mineru_sensitive_name_patterns: str = "confidential,secret,internal,sensitive,机密,保密"
+    mineru_allow_precision_fallback: bool = True
 
     model_config = SettingsConfigDict(
         env_file=".env",

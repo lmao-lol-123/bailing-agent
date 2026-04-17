@@ -1,0 +1,107 @@
+Roadmap
+
+P0
+
+建立离线评测基线
+做一份小型 gold dataset：
+问题、期望命中文档、期望章节、是否应拒答
+指标先落这几项：
+Recall@k、MRR、citation correctness、unsupported-answer rate、latency
+目标：
+所有后续检索/分块改动都必须用这套基线回归验证
+上混合检索
+在现有 FAISS 向量召回之外，加一个轻量 BM25 通道
+先做简单融合：
+dense top-k + BM25 top-k -> 去重 -> rerank
+原因：
+工程文档里报错串、配置名、函数名、参数名对关键词检索很敏感
+做 parent-child chunking
+child chunk 用于命中细节
+parent chunk 用于补全上下文和引用
+检索命中 child 后，返回 parent 参与生成
+这会明显提升回答完整性和引用稳定性
+完善结构化切分
+继续强化：
+标题层级
+段落
+列表
+代码块
+表格线性化
+对工程文档，表格和代码块不能只当普通文本处理
+补文档级索引管理
+支持按 doc_id 删除
+支持单文档重建
+支持文档更新时间变化后的替换写入
+不然知识库一大，维护会很痛苦
+P1
+
+检索诊断能力
+记录每次查询的：
+query
+召回候选
+filter 后结果
+rerank 后顺序
+chunk/page/section_path
+最好能输出 debug JSON，便于失败分析
+扩展 metadata 过滤
+在当前基础上补强：
+doc_id
+source
+doc_type
+section_path_prefix
+updated_at range
+让 API 支持组合过滤，而不是单一条件
+查询路由
+不做 multi-agent，只做轻量 query routing
+例如：
+配置/API/报错类问题优先代码块和表格
+概念类问题优先标题段落
+文档定位类问题优先关键词/BM25
+更完整的 PDF 策略
+继续保留 PyPDFLoader 默认
+对复杂 PDF 增强：
+表格提取质量判定
+OCR fallback 触发条件
+页码/章节定位稳定性
+检索缓存
+先做简单 query cache 或 retrieval cache
+目标不是炫技，而是减少重复问答的延迟和成本
+P2
+
+更强 rerank
+现在先用轻量 rerank 基线
+后面可替换成 cross-encoder
+前提：
+先用评测证明值得增加复杂度
+多知识库或命名空间
+当前单知识库够用
+等文档量和使用场景扩大后，再加库级隔离
+会话摘要压缩
+多轮对话变长后，再加历史压缩
+当前不是最高优先级
+Docker 化和运维增强
+增加本地/测试环境一键启动
+不是当前 RAG 质量核心，但后期会需要
+明确不建议现在做
+
+Multi-agent orchestration
+LangGraph 重编排
+VLM/图像理解
+切换到 Milvus/Postgres 这类更重基础设施
+过早上复杂 workflow engine
+建议执行顺序
+
+评测集与指标
+混合检索
+parent-child chunking
+表格/代码块/列表强化切分
+文档级增量更新与删除
+检索诊断
+轻量 query routing
+更强 rerank
+落地目标
+
+第一阶段目标：
+让“命中率、引用稳定性、拒答正确率”先明显提升
+第二阶段目标：
+再考虑复杂检索策略和性能优化

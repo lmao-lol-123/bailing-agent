@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from backend.src.core.config import Settings
 from backend.src.core.models import NormalizedDocument, SourceType
@@ -19,7 +19,11 @@ def test_short_parent_content_is_stored_once_per_child(fake_embeddings) -> None:
                 source_uri_or_path="notes.txt",
                 title="Notes",
                 content=content,
-                metadata={"block_id": "block-short", "block_type": "paragraph", "layout_role": "body"},
+                metadata={
+                    "block_id": "block-short",
+                    "block_type": "paragraph",
+                    "layout_role": "body",
+                },
             )
         ]
     )
@@ -36,7 +40,9 @@ def test_short_parent_content_is_stored_once_per_child(fake_embeddings) -> None:
     assert metadata["source_block_type"] == "paragraph"
 
 
-def test_parent_assembler_adds_caption_relation_without_using_same_page_near(fake_embeddings) -> None:
+def test_parent_assembler_adds_caption_relation_without_using_same_page_near(
+    fake_embeddings,
+) -> None:
     settings = Settings(chunk_max_word_pieces=96, chunk_overlap_word_pieces=8)
     service = StructureAwareChunkingService(settings=settings, embeddings=fake_embeddings)
 
@@ -71,7 +77,12 @@ def test_parent_assembler_adds_caption_relation_without_using_same_page_near(fak
                 title="Paper",
                 section_path=["Paper", "Architecture"],
                 content="Figure 1. Request flow between API and retriever.",
-                metadata={"block_id": "caption-1", "block_type": "caption", "layout_role": "caption", "block_order": 2},
+                metadata={
+                    "block_id": "caption-1",
+                    "block_type": "caption",
+                    "layout_role": "caption",
+                    "block_order": 2,
+                },
             ),
             NormalizedDocument(
                 doc_id="doc-figure-parent",
@@ -82,7 +93,12 @@ def test_parent_assembler_adds_caption_relation_without_using_same_page_near(fak
                 title="Paper",
                 section_path=["Paper", "Architecture"],
                 content="Nearby but unrelated body text.",
-                metadata={"block_id": "near-1", "block_type": "paragraph", "layout_role": "body", "block_order": 3},
+                metadata={
+                    "block_id": "near-1",
+                    "block_type": "paragraph",
+                    "layout_role": "body",
+                    "block_order": 3,
+                },
             ),
         ]
     )
@@ -131,7 +147,12 @@ def test_parent_assembler_references_related_table_and_skips_noise(fake_embeddin
                 title="Paper",
                 section_path=["Paper", "Results"],
                 content="Table columns: Metric, Value\nRow 1: Metric=Latency; Value=20ms",
-                metadata={"block_id": "table-2", "block_type": "table", "layout_role": "body", "block_order": 2},
+                metadata={
+                    "block_id": "table-2",
+                    "block_type": "table",
+                    "layout_role": "body",
+                    "block_order": 2,
+                },
             ),
             NormalizedDocument(
                 doc_id="doc-table-ref",
@@ -142,12 +163,19 @@ def test_parent_assembler_references_related_table_and_skips_noise(fake_embeddin
                 title="Paper",
                 section_path=["Paper", "Results"],
                 content="Repeated header",
-                metadata={"block_id": "header-1", "block_type": "paragraph", "layout_role": "header", "block_order": 0},
+                metadata={
+                    "block_id": "header-1",
+                    "block_type": "paragraph",
+                    "layout_role": "header",
+                    "block_order": 0,
+                },
             ),
         ]
     )
 
-    paragraph_chunk = next(chunk for chunk in chunks if chunk.metadata["source_block_id"] == "para-1")
+    paragraph_chunk = next(
+        chunk for chunk in chunks if chunk.metadata["source_block_id"] == "para-1"
+    )
     assert paragraph_chunk.metadata["parent_source_block_ids"] == ["para-1", "table-2"]
     assert "Metric=Latency" in paragraph_chunk.metadata["parent_content"]
     assert "Repeated header" not in paragraph_chunk.metadata["parent_content"]

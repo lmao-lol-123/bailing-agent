@@ -20,6 +20,8 @@ env/
 .env
 .env.*
 !.env.example
+AGENTS.md
+docs/PROJECT_STRUCTURE.md
 
 # IDE and OS files
 .idea/
@@ -39,6 +41,7 @@ dist/
 logs/
 
 # Local data and generated indexes
+data/
 data/raw/
 data/private/
 data/uploads/

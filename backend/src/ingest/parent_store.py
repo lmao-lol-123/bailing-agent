@@ -47,7 +47,9 @@ class JsonParentStore:
             return
         self._parents_directory.mkdir(parents=True, exist_ok=True)
         payload = {record.parent_chunk_id: record.to_dict() for record in records}
-        self._path_for_doc(doc_id).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._path_for_doc(doc_id).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
     def load(self, parent_chunk_id: str) -> ParentRecord | None:
         if not self._parents_directory.exists():
@@ -90,5 +92,7 @@ class JsonParentStore:
         return raw_value if isinstance(raw_value, dict) else None
 
     def _path_for_doc(self, doc_id: str) -> Path:
-        safe_doc_id = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in doc_id)
+        safe_doc_id = "".join(
+            char if char.isalnum() or char in {"-", "_"} else "_" for char in doc_id
+        )
         return self._parents_directory / f"{safe_doc_id}.parents.json"

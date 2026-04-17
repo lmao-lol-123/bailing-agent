@@ -8,7 +8,7 @@ import pytest
 from backend.src.core.config import Settings
 from backend.src.core.models import IngestedChunk, SourceType
 from backend.src.ingest.parent_store import JsonParentStore, ParentRecord
-from backend.src.retrieve.index_manager import IndexManager
+from backend.src.retrieve.index_manager import DocumentDeleteStepError, IndexManager
 from backend.src.retrieve.store import VectorStoreService
 
 
@@ -18,7 +18,14 @@ def make_case_dir(name: str) -> Path:
     return root
 
 
-def make_chunk(*, doc_id: str, chunk_id: str, content: str, child_content: str, parent_chunk_id: str | None = None) -> IngestedChunk:
+def make_chunk(
+    *,
+    doc_id: str,
+    chunk_id: str,
+    content: str,
+    child_content: str,
+    parent_chunk_id: str | None = None,
+) -> IngestedChunk:
     parent_id = parent_chunk_id or f"parent-{doc_id}"
     return IngestedChunk(
         chunk_id=chunk_id,
@@ -66,12 +73,41 @@ def test_index_manager_indexes_updates_and_rebuilds(fake_embeddings) -> None:
     )
     settings.ensure_directories()
     vector_store = VectorStoreService(settings=settings, embeddings=fake_embeddings)
-    index_manager = IndexManager(settings=settings, embeddings=fake_embeddings, vector_store=vector_store)
+    index_manager = IndexManager(
+        settings=settings, embeddings=fake_embeddings, vector_store=vector_store
+    )
     vector_store.set_index_manager(index_manager)
 
-    created = index_manager.index_chunks([make_chunk(doc_id="doc-1", chunk_id="chunk-1", content="retrieval text one", child_content="child text one")])
-    skipped = index_manager.index_chunks([make_chunk(doc_id="doc-1", chunk_id="chunk-1", content="retrieval text one", child_content="child text one")])
-    updated = index_manager.index_chunks([make_chunk(doc_id="doc-1", chunk_id="chunk-2", content="updated retrieval text", child_content="updated child text")])
+    created = index_manager.index_chunks(
+        [
+            make_chunk(
+                doc_id="doc-1",
+                chunk_id="chunk-1",
+                content="retrieval text one",
+                child_content="child text one",
+            )
+        ]
+    )
+    skipped = index_manager.index_chunks(
+        [
+            make_chunk(
+                doc_id="doc-1",
+                chunk_id="chunk-1",
+                content="retrieval text one",
+                child_content="child text one",
+            )
+        ]
+    )
+    updated = index_manager.index_chunks(
+        [
+            make_chunk(
+                doc_id="doc-1",
+                chunk_id="chunk-2",
+                content="updated retrieval text",
+                child_content="updated child text",
+            )
+        ]
+    )
     rebuilt_count = index_manager.rebuild()
 
     assert created.created is True
@@ -95,7 +131,9 @@ def test_index_manager_deletes_document_and_parent_store(fake_embeddings) -> Non
     )
     settings.ensure_directories()
     vector_store = VectorStoreService(settings=settings, embeddings=fake_embeddings)
-    index_manager = IndexManager(settings=settings, embeddings=fake_embeddings, vector_store=vector_store)
+    index_manager = IndexManager(
+        settings=settings, embeddings=fake_embeddings, vector_store=vector_store
+    )
     vector_store.set_index_manager(index_manager)
     parent_store = JsonParentStore(settings.processed_directory)
     parent_store.save_records(
@@ -113,11 +151,57 @@ def test_index_manager_deletes_document_and_parent_store(fake_embeddings) -> Non
         ],
     )
 
-    index_manager.index_chunks([make_chunk(doc_id="doc-delete", chunk_id="chunk-delete", content="delete retrieval text", child_content="delete child text", parent_chunk_id="parent-doc-delete")])
+    index_manager.index_chunks(
+        [
+            make_chunk(
+                doc_id="doc-delete",
+                chunk_id="chunk-delete",
+                content="delete retrieval text",
+                child_content="delete child text",
+                parent_chunk_id="parent-doc-delete",
+            )
+        ]
+    )
 
     assert index_manager.delete_document("doc-delete") is True
     assert index_manager.list_documents() == []
     assert parent_store.load("parent-doc-delete") is None
+
+
+def test_index_manager_delete_document_reports_faiss_step_failure(
+    monkeypatch, fake_embeddings
+) -> None:
+    case_dir = make_case_dir("index-manager-delete-step-failure")
+    settings = Settings(
+        uploads_directory=case_dir / "uploads",
+        processed_directory=case_dir / "processed",
+        faiss_index_directory=case_dir / "faiss",
+        index_state_directory=case_dir / "index",
+    )
+    settings.ensure_directories()
+    vector_store = VectorStoreService(settings=settings, embeddings=fake_embeddings)
+    index_manager = IndexManager(
+        settings=settings, embeddings=fake_embeddings, vector_store=vector_store
+    )
+    vector_store.set_index_manager(index_manager)
+    index_manager.index_chunks(
+        [
+            make_chunk(
+                doc_id="doc-step",
+                chunk_id="chunk-step",
+                content="step retrieval",
+                child_content="step child",
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        vector_store, "delete_ids", lambda ids: (_ for _ in ()).throw(RuntimeError("faiss error"))
+    )
+
+    with pytest.raises(DocumentDeleteStepError) as exc:
+        index_manager.delete_document_with_steps("doc-step")
+
+    assert exc.value.step == "faiss_delete"
 
 
 def test_index_manager_blocks_incompatible_manifest(fake_embeddings) -> None:
@@ -130,11 +214,24 @@ def test_index_manager_blocks_incompatible_manifest(fake_embeddings) -> None:
     )
     settings.ensure_directories()
     vector_store = VectorStoreService(settings=settings, embeddings=fake_embeddings)
-    index_manager = IndexManager(settings=settings, embeddings=fake_embeddings, vector_store=vector_store)
+    index_manager = IndexManager(
+        settings=settings, embeddings=fake_embeddings, vector_store=vector_store
+    )
     manifest_path = settings.index_state_directory / settings.index_name / "manifest.json"
     manifest = index_manager.get_manifest()
     manifest["embedding_model"] = "other-model"
-    manifest_path.write_text(__import__("json").dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    manifest_path.write_text(
+        __import__("json").dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     with pytest.raises(ValueError):
-        index_manager.index_chunks([make_chunk(doc_id="doc-1", chunk_id="chunk-1", content="retrieval text one", child_content="child text one")])
+        index_manager.index_chunks(
+            [
+                make_chunk(
+                    doc_id="doc-1",
+                    chunk_id="chunk-1",
+                    content="retrieval text one",
+                    child_content="child text one",
+                )
+            ]
+        )

@@ -1,29 +1,28 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from math import log
 from typing import Any, Callable
 
-from langchain_core.documents import Document
-
 from backend.src.core.config import Settings
 from backend.src.core.models import RetrievalFilter
+from backend.src.core.text import tokenize_search_text
 from backend.src.retrieve.index_manager import ActiveChunkRecord, IndexManager
 from backend.src.retrieve.rerank import RetrievedCandidate
-
-_TOKEN_PATTERN = re.compile(r"[\w\u4e00-\u9fff]+", re.UNICODE)
 
 try:
     from rank_bm25 import BM25Okapi as _BM25Okapi
 except ImportError:
+
     class _BM25Okapi:  # pragma: no cover - compatibility fallback when dependency is unavailable
         def __init__(self, corpus: list[list[str]], k1: float = 1.5, b: float = 0.75) -> None:
             self._corpus = corpus
             self._k1 = k1
             self._b = b
             self._doc_lengths = [len(document) for document in corpus]
-            self._avgdl = sum(self._doc_lengths) / len(self._doc_lengths) if self._doc_lengths else 0.0
+            self._avgdl = (
+                sum(self._doc_lengths) / len(self._doc_lengths) if self._doc_lengths else 0.0
+            )
             self._term_frequencies: list[dict[str, int]] = []
             self._document_frequencies: dict[str, int] = {}
             for document in corpus:
@@ -62,7 +61,7 @@ class BM25CorpusSnapshot:
     version_token: str
     records: list[ActiveChunkRecord]
     tokenized_corpus: list[list[str]]
-    bm25: _BM25Okapi
+    bm25: _BM25Okapi | None
 
 
 class LexicalRetrievalService:
@@ -91,7 +90,7 @@ class LexicalRetrievalService:
             return []
 
         snapshot = self._ensure_snapshot()
-        if not snapshot.records:
+        if not snapshot.records or snapshot.bm25 is None:
             return []
 
         scores = snapshot.bm25.get_scores(query_tokens)
@@ -128,7 +127,7 @@ class LexicalRetrievalService:
 
         records = self._index_manager.list_active_chunk_records()
         tokenized_corpus = [self._tokenize(record.retrieval_text) for record in records]
-        bm25 = _BM25Okapi(tokenized_corpus) if tokenized_corpus else _BM25Okapi([[]])
+        bm25 = _BM25Okapi(tokenized_corpus) if tokenized_corpus else None
         self._snapshot = BM25CorpusSnapshot(
             version_token=version_token,
             records=records,
@@ -139,4 +138,4 @@ class LexicalRetrievalService:
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:
-        return [token.lower() for token in _TOKEN_PATTERN.findall(text)]
+        return tokenize_search_text(text)

@@ -29,7 +29,9 @@ def test_chunking_writes_parent_records_to_json_store(fake_embeddings, processed
         chunk_max_word_pieces=24,
         chunk_overlap_word_pieces=4,
     )
-    service = StructureAwareChunkingService(settings=settings, embeddings=fake_embeddings, persist_parent_store=True)
+    service = StructureAwareChunkingService(
+        settings=settings, embeddings=fake_embeddings, persist_parent_store=True
+    )
     long_text = " ".join(f"token{index}" for index in range(80))
 
     chunks = service.chunk_documents(
@@ -41,7 +43,11 @@ def test_chunking_writes_parent_records_to_json_store(fake_embeddings, processed
                 source_uri_or_path="notes.txt",
                 title="Notes",
                 content=long_text,
-                metadata={"block_id": "block-long", "block_type": "paragraph", "layout_role": "body"},
+                metadata={
+                    "block_id": "block-long",
+                    "block_type": "paragraph",
+                    "layout_role": "body",
+                },
             )
         ]
     )
@@ -50,7 +56,10 @@ def test_chunking_writes_parent_records_to_json_store(fake_embeddings, processed
     parent_chunk_id = chunks[0].metadata["parent_chunk_id"]
     assert all(chunk.metadata["parent_stored"] is True for chunk in chunks)
     assert all(chunk.metadata["parent_content_available"] == "store" for chunk in chunks)
-    assert all(chunk.metadata["parent_store_ref"] == f"doc-parent-store:{parent_chunk_id}" for chunk in chunks)
+    assert all(
+        chunk.metadata["parent_store_ref"] == f"doc-parent-store:{parent_chunk_id}"
+        for chunk in chunks
+    )
     assert all("parent_content" not in chunk.metadata for chunk in chunks)
 
     parent_store = JsonParentStore(settings.processed_directory)
@@ -69,7 +78,9 @@ def test_parent_store_persists_assembled_parent_content(fake_embeddings, process
         chunk_max_word_pieces=96,
         chunk_overlap_word_pieces=8,
     )
-    service = StructureAwareChunkingService(settings=settings, embeddings=fake_embeddings, persist_parent_store=True)
+    service = StructureAwareChunkingService(
+        settings=settings, embeddings=fake_embeddings, persist_parent_store=True
+    )
 
     chunks = service.chunk_documents(
         [
@@ -86,7 +97,9 @@ def test_parent_store_persists_assembled_parent_content(fake_embeddings, process
                     "block_type": "image",
                     "layout_role": "body",
                     "block_order": 1,
-                    "graph_edges": [{"type": "has_caption", "target_block_id": "caption-store", "weight": 0.98}],
+                    "graph_edges": [
+                        {"type": "has_caption", "target_block_id": "caption-store", "weight": 0.98}
+                    ],
                 },
             ),
             NormalizedDocument(
@@ -97,12 +110,19 @@ def test_parent_store_persists_assembled_parent_content(fake_embeddings, process
                 title="Paper",
                 section_path=["Paper", "Figures"],
                 content="Figure 2. Stored caption context.",
-                metadata={"block_id": "caption-store", "block_type": "caption", "layout_role": "caption", "block_order": 2},
+                metadata={
+                    "block_id": "caption-store",
+                    "block_type": "caption",
+                    "layout_role": "caption",
+                    "block_order": 2,
+                },
             ),
         ]
     )
 
-    image_chunk = next(chunk for chunk in chunks if chunk.metadata["source_block_id"] == "image-store")
+    image_chunk = next(
+        chunk for chunk in chunks if chunk.metadata["source_block_id"] == "image-store"
+    )
     parent_store = JsonParentStore(settings.processed_directory)
     record = parent_store.load(image_chunk.metadata["parent_chunk_id"])
 

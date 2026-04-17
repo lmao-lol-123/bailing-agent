@@ -1,56 +1,64 @@
-# Engineering RAG Assistant
+# Bailing Agent
 
 [中文](./README.md) | [English](./README.en.md)
 
-A lightweight RAG assistant for engineering documents. The current phase is backend-first, with a strong focus on local reliability, grounded retrieval, cited answers, and stable streaming output.
+A backend-first RAG project for engineering documents and standards-style PDFs, focused on local reliability, explainable retrieval, source-grounded answers, session-scoped file isolation, and reproducible offline evaluation.
 
-## Features
+## Overview
 
-- Multi-format ingestion for web pages, PDF, Word `.docx`, Markdown, CSV, JSON, and TXT
-- Backend-first scope covering ingestion, chunking, retrieval, generation, evaluation, and API reliability
+This repository is not centered on a generic chat UI. The main value is the end-to-end backend pipeline:
+
+- document ingestion and normalization
+- structure-aware chunking
+- hybrid retrieval, routing, reranking, and retry
+- citation-constrained answer generation
+- session file upload and isolation
+- DeepSeek-powered RAGAS evaluation
+
+The project now uses `uv` for dependency management, environment setup, and lockfile handling.
+
+## Key Features
+
+- Multi-format ingestion for PDF, Word, Markdown, CSV, JSON, TXT, and web pages
 - Hybrid retrieval with FAISS dense recall, BM25 lexical recall, query expansion, routing, and reranking
-- Source-grounded answers with citations and retrieval metadata carried through the pipeline
-- Streaming Q&A via `POST /ask/stream` using SSE token, sources, and done events
-- Persistent chat sessions backed by SQLite for follow-up questions
+- Regulation-aware metadata such as `clause_id`, `table_id`, numeric anchors, and English aliases
+- Session-scoped uploads to prevent cross-session file exposure
+- Citation validation and conservative fallback behavior when evidence is weak
+- DeepSeek-backed RAGAS evaluation and offline retrieval diagnostics
+- Content-addressed file storage to avoid duplicate raw uploads in `data/uploads`
 
 ## Tech Stack
 
-| Component | Technology |
+| Area | Technology |
 | --- | --- |
-| API | FastAPI, Pydantic, StreamingResponse |
-| Ingestion | LangChain loaders, pymupdf4llm, Unstructured |
-| Chunking | Structure-first chunking with token-budget-aware splitting |
+| API | FastAPI, Pydantic, SSE |
+| Ingestion | LangChain loaders, pymupdf4llm, Unstructured, MinerU fallback |
 | Retrieval | sentence-transformers, FAISS, rank-bm25 |
 | Generation | DeepSeek API via the OpenAI-compatible SDK |
 | Persistence | SQLite, local JSON snapshots |
-| Testing | pytest, pytest-asyncio, FastAPI TestClient |
-
-## Current Backend Capabilities
-
-- Imported documents are normalized and persisted to `data/processed/`
-- Retrieval now supports query routing, deterministic expansion, hybrid recall, heuristic reranking, and targeted retry
-- Child hits can be hydrated back to parent content to preserve richer answer context
-- The generator explicitly declines to answer when the evidence is insufficient
-- A real DeepSeek API smoke test has passed through the streaming answer path
+| Tooling | uv, pytest, ruff |
 
 ## Quick Start
 
-Use a repository-local virtual environment:
+If `uv` is not installed yet:
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
+winget install --id=astral-sh.uv -e
 ```
 
-Copy the environment template and fill in the DeepSeek settings:
+Initialize the environment:
+
+```powershell
+uv sync
+```
+
+Copy the environment template:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Required `.env` values:
+Minimum required values:
 
 ```env
 DEEPSEEK_API_KEY=your-deepseek-api-key
@@ -61,13 +69,12 @@ DEEPSEEK_MODEL=deepseek-chat
 Start the API:
 
 ```powershell
-.venv\Scripts\activate
-uvicorn backend.src.api.main:app --reload
+uv run uvicorn backend.src.api.main:app --reload
 ```
 
-Common entry points:
+Entry points:
 
-- Web/API entry: `http://127.0.0.1:8000/`
+- Web/API: `http://127.0.0.1:8000/`
 - OpenAPI docs: `http://127.0.0.1:8000/docs`
 
 ## Common Commands
@@ -75,22 +82,38 @@ Common entry points:
 Build an index:
 
 ```powershell
-.venv\Scripts\activate
-python -m backend.scripts.build_index data\sample.txt
+uv run python -m backend.scripts.build_index path\to\document.pdf
 ```
 
 Ask from the CLI:
 
 ```powershell
-.venv\Scripts\activate
-python -m backend.scripts.ask "What does this document say?"
+uv run python -m backend.scripts.ask "What is the key conclusion of this document?"
 ```
 
-Run the test suite:
+Run the full test suite:
 
 ```powershell
-.venv\Scripts\activate
-python -m pytest -q
+uv run pytest
+```
+
+Install evaluation dependencies:
+
+```powershell
+uv sync --group eval
+```
+
+Run RAGAS evaluation:
+
+```powershell
+uv run python -m backend.scripts.run_ragas_eval --dataset backend/tests/fixtures/eval_dataset.json
+```
+
+Clean up legacy `data` storage:
+
+```powershell
+uv run python -m backend.scripts.cleanup_data_storage
+uv run python -m backend.scripts.cleanup_data_storage --apply
 ```
 
 ## API Overview
@@ -100,51 +123,121 @@ python -m pytest -q
 - `POST /ingest/url`
 - `GET /documents`
 - `GET /sessions`
-- `GET /sessions/{session_id}/messages`
 - `PATCH /sessions/{session_id}`
 - `DELETE /sessions/{session_id}`
+- `GET /sessions/{session_id}/messages`
+- `POST /sessions/{session_id}/files`
+- `GET /sessions/{session_id}/files`
+- `DELETE /sessions/{session_id}/files/{file_id}`
+- `POST /sessions/{session_id}/files/{file_id}/recover-delete`
 - `POST /ask/stream`
-
-`POST /ask/stream` accepts `question` plus optional `top_k`, `session_id`, and `metadata_filter`.
 
 ## Project Structure
 
+This section is written as a directory tree with short responsibility notes for quick orientation.
+
 ```text
 bailing-agent/
-|- backend/
-|  |- scripts/
-|  |- src/
-|  |  |- api/
-|  |  |- core/
-|  |  |- eval/
-|  |  |- generate/
-|  |  |- ingest/
-|  |  |- models/
-|  |  `- retrieve/
-|  `- tests/
-|- data/
-|- docs/
-|- frontend/
-|- storage/
-|- .github/workflows/ci.yml
-|- CHANGELOG.md
-|- README.en.md
-`- README.md
+├─ .github/
+│  └─ workflows/
+│     └─ ci.yml                      # GitHub Actions workflow for CI
+├─ backend/
+│  ├─ scripts/                       # CLI utilities: indexing, asking, evaluation, cleanup, recovery
+│  ├─ src/
+│  │  ├─ api/                        # FastAPI routes and API schemas
+│  │  ├─ core/                       # Config, dependency wiring, shared models, chat store, text utilities
+│  │  ├─ eval/                       # Offline evaluation dataset helpers
+│  │  ├─ generate/                   # Answer generation, citation validation, prompt assembly
+│  │  ├─ ingest/                     # Ingestion, PDF parsing, cleaning, chunking, object storage
+│  │  ├─ models/                     # Reserved package, currently mostly a placeholder
+│  │  └─ retrieve/                   # Retrieval, index management, routing, expansion, reranking, retry
+│  ├─ tests/                         # Backend test suite
+│  ├─ .pytest-tmp/                   # pytest runtime artifacts, not source code
+│  └─ test_runtime/                  # Temporary runtime fixtures for tests
+├─ data/                             # Raw document objects and processed snapshots, not the live KB itself
+│  ├─ uploads/                       # Raw content-addressed file objects
+│  └─ processed/                     # Normalized parse snapshots such as doc-xxxx.normalized.json
+├─ docs/
+│  ├─ README.md                      # Extra Chinese documentation
+│  ├─ README.en.md                   # Extra English documentation
+│  ├─ PROJECT_STRUCTURE.md           # Detailed project structure notes
+│  └─ roadmap.txt                    # Planning notes
+├─ frontend/
+│  ├─ index.html                     # Static page shell
+│  ├─ app.js                         # Frontend interaction logic
+│  └─ styles.css                     # Styles
+├─ storage/                          # Live RAG runtime state
+│  ├─ chat_history.sqlite3           # Chat history and session-file metadata
+│  ├─ faiss/                         # Vector index files
+│  ├─ index/                         # Index sqlite state and manifest
+│  └─ eval/                          # Evaluation output directory
+├─ .env.example                      # Environment template
+├─ .gitignore                        # Git ignore rules
+├─ CHANGELOG.md                      # Bilingual changelog
+├─ pyproject.toml                    # Python/uv/ruff project config
+├─ pytest.ini                        # pytest config
+├─ README.en.md                      # Main English README
+├─ README.md                         # Main Chinese README
+└─ uv.lock                           # uv lockfile
 ```
 
-## Validation Status
+## About `data/` vs the Knowledge Base
 
-- Full backend test suite: `60 passed`
-- Real DeepSeek streaming smoke test: passed
-- CI: GitHub Actions runs on `master`, `main`, and `codex/**`
+`data/` is not a “drop files here and they become the knowledge base” folder.
 
-## Repository Notes
+A more accurate model is:
 
-- `data/uploads/`, `data/processed/`, and `storage/` are local runtime artifacts and are not pushed to GitHub
-- Frontend work is maintenance-only in the current phase; active work is concentrated in the backend
-- When evidence is weak, the system is expected to answer conservatively instead of fabricating details
+- `data/uploads/`: system-managed raw file objects
+- `data/processed/`: normalized parse snapshots
+- `storage/`: the actual live retrieval and chat state
+
+So in practice:
+
+- `data` is for source files and intermediate artifacts
+- `storage` is for the active RAG runtime state
+
+## Global Knowledge Base vs Chat Uploads
+
+The project distinguishes two logical document scopes:
+
+- Global knowledge-base documents
+  - visible to all sessions
+  - logically `global scope`
+
+- Chat-uploaded documents
+  - visible only inside the owning session
+  - logically `session scope`
+  - constrained by `session_id`
+
+These two categories may reuse the same underlying raw file object, but they must not share the same retrieval visibility boundary. In other words:
+
+- physical storage can be deduplicated
+- retrieval permissions must stay isolated
+
+## Current Validation Status
+
+- Full backend test suite: `104 passed`
+- `ruff check`: passed
+- DeepSeek streaming answer path: validated
+- DeepSeek-backed RAGAS evaluation flow: enabled
+
+## GitHub Push Notes
+
+The following should not be pushed to GitHub:
+
+- `.env`
+- runtime data under `data/`
+- runtime data under `storage/`
+- `AGENTS.md`
+- temporary test artifacts such as `backend/.pytest-tmp/` and `test_runtime/`
+
+Before pushing, it is still a good idea to verify:
+
+```powershell
+git status --short
+```
 
 ## References
 
-- Project rules: [AGENTS.md](./AGENTS.md)
-- Deeptoai RAG docs: [https://rag.deeptoai.com/docs](https://rag.deeptoai.com/docs)
+- Structure notes: [docs/PROJECT_STRUCTURE.md](./docs/PROJECT_STRUCTURE.md)
+- Changelog: [CHANGELOG.md](./CHANGELOG.md)

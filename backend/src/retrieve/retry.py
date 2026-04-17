@@ -63,7 +63,10 @@ class RetrievalRetryService:
         lexical_k: int | None = None,
         fusion_top_k: int | None = None,
     ) -> TargetedRetrievalPlan:
-        hard_targeting = decision.enforce_targeting and decision.route_name in {"structure", "explained_structure"}
+        hard_targeting = decision.enforce_targeting and decision.route_name in {
+            "structure",
+            "explained_structure",
+        }
         if use_hard_targeting is not None:
             hard_targeting = use_hard_targeting and hard_targeting
         return TargetedRetrievalPlan(
@@ -93,18 +96,71 @@ class RetrievalRetryService:
         result_count = len(candidates)
         top_score = self._candidate_score(candidates[0]) if candidates else 0.0
         second_score = self._candidate_score(candidates[1]) if len(candidates) > 1 else 0.0
-        target_hit_count = sum(1 for candidate in candidates if self._is_primary_target(candidate, plan))
-        context_hit_count = sum(1 for candidate in candidates if self._is_context_target(candidate, plan))
+        target_hit_count = sum(
+            1 for candidate in candidates if self._is_primary_target(candidate, plan)
+        )
+        context_hit_count = sum(
+            1 for candidate in candidates if self._is_context_target(candidate, plan)
+        )
 
         if result_count < min_required_results:
-            return RetrievalSufficiency(False, result_count, min_required_results, top_score, second_score, target_hit_count, context_hit_count, "insufficient_count")
-        if plan.route_name in {"structure", "explained_structure"} and plan.target_block_types and target_hit_count == 0:
-            return RetrievalSufficiency(False, result_count, min_required_results, top_score, second_score, target_hit_count, context_hit_count, "no_target_block_hit")
+            return RetrievalSufficiency(
+                False,
+                result_count,
+                min_required_results,
+                top_score,
+                second_score,
+                target_hit_count,
+                context_hit_count,
+                "insufficient_count",
+            )
+        if (
+            plan.route_name in {"structure", "explained_structure"}
+            and plan.target_block_types
+            and target_hit_count == 0
+        ):
+            return RetrievalSufficiency(
+                False,
+                result_count,
+                min_required_results,
+                top_score,
+                second_score,
+                target_hit_count,
+                context_hit_count,
+                "no_target_block_hit",
+            )
         if plan.route_name == "explained_structure" and context_hit_count == 0:
-            return RetrievalSufficiency(False, result_count, min_required_results, top_score, second_score, target_hit_count, context_hit_count, "missing_explanatory_context")
+            return RetrievalSufficiency(
+                False,
+                result_count,
+                min_required_results,
+                top_score,
+                second_score,
+                target_hit_count,
+                context_hit_count,
+                "missing_explanatory_context",
+            )
         if result_count and top_score < 0.05 and second_score < 0.04:
-            return RetrievalSufficiency(False, result_count, min_required_results, top_score, second_score, target_hit_count, context_hit_count, "low_rerank_confidence")
-        return RetrievalSufficiency(True, result_count, min_required_results, top_score, second_score, target_hit_count, context_hit_count, "sufficient")
+            return RetrievalSufficiency(
+                False,
+                result_count,
+                min_required_results,
+                top_score,
+                second_score,
+                target_hit_count,
+                context_hit_count,
+                "low_rerank_confidence",
+            )
+        return RetrievalSufficiency(
+            True,
+            result_count,
+            min_required_results,
+            top_score,
+            second_score,
+            target_hit_count,
+            context_hit_count,
+            "sufficient",
+        )
 
     def decide_retry(
         self,
@@ -114,14 +170,50 @@ class RetrievalRetryService:
         attempt: int,
     ) -> RetryDecision:
         if sufficiency.is_sufficient:
-            return RetryDecision(False, plan.retry_policy, sufficiency.reason, plan.dense_k, plan.lexical_k, plan.fusion_top_k, False, plan.use_hard_targeting)
-        if not self._settings.targeted_retry_enabled or attempt >= self._settings.targeted_retry_max_attempts:
-            return RetryDecision(False, plan.retry_policy, sufficiency.reason, plan.dense_k, plan.lexical_k, plan.fusion_top_k, False, plan.use_hard_targeting)
+            return RetryDecision(
+                False,
+                plan.retry_policy,
+                sufficiency.reason,
+                plan.dense_k,
+                plan.lexical_k,
+                plan.fusion_top_k,
+                False,
+                plan.use_hard_targeting,
+            )
+        if (
+            not self._settings.targeted_retry_enabled
+            or attempt >= self._settings.targeted_retry_max_attempts
+        ):
+            return RetryDecision(
+                False,
+                plan.retry_policy,
+                sufficiency.reason,
+                plan.dense_k,
+                plan.lexical_k,
+                plan.fusion_top_k,
+                False,
+                plan.use_hard_targeting,
+            )
         if plan.retry_policy == "none":
-            return RetryDecision(False, plan.retry_policy, sufficiency.reason, plan.dense_k, plan.lexical_k, plan.fusion_top_k, False, plan.use_hard_targeting)
+            return RetryDecision(
+                False,
+                plan.retry_policy,
+                sufficiency.reason,
+                plan.dense_k,
+                plan.lexical_k,
+                plan.fusion_top_k,
+                False,
+                plan.use_hard_targeting,
+            )
 
-        dense_k = max(plan.dense_k + 1, int(math.ceil(plan.dense_k * self._settings.targeted_retry_dense_multiplier)))
-        lexical_k = max(plan.lexical_k + 1, int(math.ceil(plan.lexical_k * self._settings.targeted_retry_lexical_multiplier)))
+        dense_k = max(
+            plan.dense_k + 1,
+            int(math.ceil(plan.dense_k * self._settings.targeted_retry_dense_multiplier)),
+        )
+        lexical_k = max(
+            plan.lexical_k + 1,
+            int(math.ceil(plan.lexical_k * self._settings.targeted_retry_lexical_multiplier)),
+        )
         fusion_top_k = max(plan.fusion_top_k, max(dense_k, lexical_k))
         allow_keyword_variant = plan.retry_policy == "widen_then_keyword"
         return RetryDecision(
@@ -139,17 +231,27 @@ class RetrievalRetryService:
     def _candidate_score(candidate: RetrievedCandidate) -> float:
         if candidate.rerank_score is not None:
             return float(candidate.rerank_score)
-        return float(candidate.query_fusion_score if candidate.query_fusion_score is not None else candidate.fusion_score)
+        return float(
+            candidate.query_fusion_score
+            if candidate.query_fusion_score is not None
+            else candidate.fusion_score
+        )
 
     @staticmethod
     def _candidate_block_type(candidate: RetrievedCandidate) -> str:
         metadata = candidate.document.metadata or {}
-        return str(metadata.get("source_block_type") or metadata.get("block_type") or "paragraph").lower()
+        return str(
+            metadata.get("source_block_type") or metadata.get("block_type") or "paragraph"
+        ).lower()
 
-    def _is_primary_target(self, candidate: RetrievedCandidate, plan: TargetedRetrievalPlan) -> bool:
+    def _is_primary_target(
+        self, candidate: RetrievedCandidate, plan: TargetedRetrievalPlan
+    ) -> bool:
         return self._candidate_block_type(candidate) in set(plan.target_block_types)
 
-    def _is_context_target(self, candidate: RetrievedCandidate, plan: TargetedRetrievalPlan) -> bool:
+    def _is_context_target(
+        self, candidate: RetrievedCandidate, plan: TargetedRetrievalPlan
+    ) -> bool:
         block_type = self._candidate_block_type(candidate)
         if block_type in set(plan.target_block_types):
             return True

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 from uuid import uuid4
@@ -58,7 +58,7 @@ def test_pdf_uses_pymupdf4llm_by_default_and_preserves_page_marker(monkeypatch) 
     monkeypatch.setattr(
         router._pdf_parser,
         "parse_pdf",
-        lambda file_path, force_mineru=False: (
+        lambda file_path, force_mineru=False, **kwargs: (
             [
                 ParsedPage(
                     page_number=1,
@@ -103,7 +103,7 @@ def test_pdf_falls_back_to_mineru_when_requested(monkeypatch) -> None:
     monkeypatch.setattr(
         router._pdf_parser,
         "parse_pdf",
-        lambda file_path, force_mineru=False: (
+        lambda file_path, force_mineru=False, **kwargs: (
             [
                 ParsedPage(
                     page_number=1,
@@ -143,3 +143,34 @@ def test_loader_generates_stable_doc_id_for_same_file() -> None:
 
     assert first_documents[0].doc_id == second_documents[0].doc_id
     assert first_documents[0].doc_id.startswith("doc-")
+
+
+def test_loader_uses_object_storage_path_for_stable_doc_id_and_display_name() -> None:
+    case_dir = make_case_dir("object-doc-id")
+    object_path = case_dir / "uploads" / "objects" / ("a" * 64 + ".txt")
+    object_path.parent.mkdir(parents=True, exist_ok=True)
+    object_path.write_text("object storage text", encoding="utf-8")
+
+    settings = Settings(
+        uploads_directory=case_dir / "uploads",
+        processed_directory=case_dir / "processed",
+        faiss_index_directory=case_dir / "faiss",
+        index_state_directory=case_dir / "index",
+    )
+    settings.ensure_directories()
+    router = DocumentLoaderRouter(settings)
+
+    first_doc_id = router._build_file_doc_id(file_path=object_path, source_type=SourceType.TXT)
+    second_doc_id = router._build_file_doc_id(file_path=object_path, source_type=SourceType.TXT)
+
+    assert first_doc_id == second_doc_id
+
+    documents, used_mineru = router.load_file(
+        object_path,
+        source_name="Original Guide.txt",
+        doc_id_override="doc-custom",
+    )
+
+    assert used_mineru is False
+    assert documents[0].doc_id == "doc-custom"
+    assert documents[0].source_name == "Original Guide.txt"

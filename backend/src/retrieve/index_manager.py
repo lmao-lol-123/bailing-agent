@@ -34,6 +34,22 @@ class IndexWriteResult:
 
 
 @dataclass(frozen=True)
+class DocumentDeleteResult:
+    doc_id: str
+    chunk_count: int
+    faiss_deleted: bool
+    parent_store_deleted: bool
+    manifest_updated: bool
+    deleted_anything: bool
+
+
+class DocumentDeleteStepError(RuntimeError):
+    def __init__(self, *, step: str, message: str) -> None:
+        self.step = step
+        super().__init__(message)
+
+
+@dataclass(frozen=True)
 class ActiveChunkRecord:
     chunk_id: str
     doc_id: str
@@ -45,11 +61,15 @@ class ActiveChunkRecord:
     section_path: list[str] = field(default_factory=list)
 
     def to_document(self) -> Document:
-        return Document(page_content=self.retrieval_text, metadata=dict(self.metadata), id=self.chunk_id)
+        return Document(
+            page_content=self.retrieval_text, metadata=dict(self.metadata), id=self.chunk_id
+        )
 
 
 class IndexManager:
-    def __init__(self, settings: Settings, embeddings: object, vector_store: VectorStoreService) -> None:
+    def __init__(
+        self, settings: Settings, embeddings: object, vector_store: VectorStoreService
+    ) -> None:
         self._settings = settings
         self._embeddings = embeddings
         self._vector_store = vector_store
@@ -74,14 +94,20 @@ class IndexManager:
         now = self._utcnow()
         existing_doc = self._fetch_active_document(doc_id)
         if existing_doc and str(existing_doc["content_fingerprint"]) == fingerprint:
-            self._record_ingest_run(doc_id=doc_id, run_type="noop", chunk_count=len(chunks), status="skipped")
-            return IndexWriteResult(doc_id=doc_id, chunk_count=int(existing_doc["chunk_count"]), skipped=True)
+            self._record_ingest_run(
+                doc_id=doc_id, run_type="noop", chunk_count=len(chunks), status="skipped"
+            )
+            return IndexWriteResult(
+                doc_id=doc_id, chunk_count=int(existing_doc["chunk_count"]), skipped=True
+            )
 
         existing_chunk_ids = self.get_active_chunk_ids(doc_id)
         documents = self._chunks_to_documents(chunks)
         if existing_chunk_ids:
             self._vector_store.delete_ids(existing_chunk_ids)
-        self._vector_store.add_documents(documents=documents, ids=[chunk.chunk_id for chunk in chunks])
+        self._vector_store.add_documents(
+            documents=documents, ids=[chunk.chunk_id for chunk in chunks]
+        )
 
         parent_rows = self._collect_parent_rows(chunks)
         ingest_id = str(uuid4())
@@ -130,8 +156,12 @@ class IndexManager:
                     doc_id,
                     chunks[0].source_name,
                     chunks[0].source_uri_or_path,
-                    chunks[0].doc_type.value if chunks[0].doc_type else chunks[0].metadata.get("source_type") or "txt",
-                    chunks[0].doc_type.value if chunks[0].doc_type else chunks[0].metadata.get("doc_type") or "txt",
+                    chunks[0].doc_type.value
+                    if chunks[0].doc_type
+                    else chunks[0].metadata.get("source_type") or "txt",
+                    chunks[0].doc_type.value
+                    if chunks[0].doc_type
+                    else chunks[0].metadata.get("doc_type") or "txt",
                     fingerprint,
                     ingest_id,
                     len(chunks),
@@ -186,7 +216,9 @@ class IndexManager:
                         child_content,
                         metadata_json,
                         hashlib.sha256(chunk.content.encode("utf-8")).hexdigest(),
-                        hashlib.sha256(child_content.encode("utf-8")).hexdigest() if child_content else "",
+                        hashlib.sha256(child_content.encode("utf-8")).hexdigest()
+                        if child_content
+                        else "",
                         now,
                         now,
                     ),
@@ -221,7 +253,16 @@ class IndexManager:
 
             connection.execute(
                 "INSERT INTO ingest_runs (ingest_id, doc_id, run_type, chunk_count, started_at, completed_at, status, schema_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (ingest_id, doc_id, "update" if existing_doc else "append", len(chunks), now, now, "completed", _INDEX_SCHEMA_VERSION),
+                (
+                    ingest_id,
+                    doc_id,
+                    "update" if existing_doc else "append",
+                    len(chunks),
+                    now,
+                    now,
+                    "completed",
+                    _INDEX_SCHEMA_VERSION,
+                ),
             )
 
         self._touch_manifest()
@@ -235,37 +276,79 @@ class IndexManager:
         )
 
     def delete_document(self, doc_id: str) -> bool:
-        chunk_ids = self.get_active_chunk_ids(doc_id)
-        if not chunk_ids:
-            return False
+        result = self.delete_document_with_steps(doc_id)
+        return result.deleted_anything
 
-        now = self._utcnow()
-        self._vector_store.delete_ids(chunk_ids)
-        with self._connect() as connection:
-            connection.execute(
-                "UPDATE index_documents SET doc_status='deleted', updated_at=?, deleted_at=? WHERE doc_id=?",
-                (now, now, doc_id),
-            )
-            connection.execute(
-                "UPDATE index_chunks SET chunk_status='deleted', updated_at=?, deleted_at=? WHERE doc_id=? AND chunk_status='active'",
-                (now, now, doc_id),
-            )
-            connection.execute(
-                "UPDATE index_parents SET parent_status='deleted', updated_at=?, deleted_at=? WHERE doc_id=? AND parent_status='active'",
-                (now, now, doc_id),
-            )
-            connection.execute(
-                "INSERT INTO ingest_runs (ingest_id, doc_id, run_type, chunk_count, started_at, completed_at, status, schema_version) VALUES (?, ?, 'delete', ?, ?, ?, 'completed', ?)",
-                (str(uuid4()), doc_id, len(chunk_ids), now, now, _INDEX_SCHEMA_VERSION),
-            )
-        self._parent_store.delete_records(doc_id)
-        self._touch_manifest()
-        return True
+    def delete_document_with_steps(self, doc_id: str) -> DocumentDeleteResult:
+        chunk_ids = self.get_active_chunk_ids(doc_id)
+        doc_exists = self._document_exists(doc_id)
+        deleted_anything = bool(chunk_ids or doc_exists)
+
+        faiss_deleted = False
+        parent_store_deleted = False
+        manifest_updated = False
+
+        try:
+            if chunk_ids:
+                self._vector_store.delete_ids(chunk_ids)
+            faiss_deleted = True
+        except Exception as exc:
+            raise DocumentDeleteStepError(
+                step="faiss_delete",
+                message=f"[step=faiss_delete] {exc}",
+            ) from exc
+
+        try:
+            self._parent_store.delete_records(doc_id)
+            parent_store_deleted = True
+        except Exception as exc:
+            raise DocumentDeleteStepError(
+                step="parent_store_delete",
+                message=f"[step=parent_store_delete] {exc}",
+            ) from exc
+
+        try:
+            now = self._utcnow()
+            with self._connect() as connection:
+                connection.execute(
+                    "UPDATE index_documents SET doc_status='deleted', updated_at=?, deleted_at=? WHERE doc_id=?",
+                    (now, now, doc_id),
+                )
+                connection.execute(
+                    "UPDATE index_chunks SET chunk_status='deleted', updated_at=?, deleted_at=? WHERE doc_id=? AND chunk_status='active'",
+                    (now, now, doc_id),
+                )
+                connection.execute(
+                    "UPDATE index_parents SET parent_status='deleted', updated_at=?, deleted_at=? WHERE doc_id=? AND parent_status='active'",
+                    (now, now, doc_id),
+                )
+                connection.execute(
+                    "INSERT INTO ingest_runs (ingest_id, doc_id, run_type, chunk_count, started_at, completed_at, status, schema_version) VALUES (?, ?, 'delete', ?, ?, ?, 'completed', ?)",
+                    (str(uuid4()), doc_id, len(chunk_ids), now, now, _INDEX_SCHEMA_VERSION),
+                )
+            self._touch_manifest()
+            manifest_updated = True
+        except Exception as exc:
+            raise DocumentDeleteStepError(
+                step="index_manifest_record_update",
+                message=f"[step=index_manifest_record_update] {exc}",
+            ) from exc
+
+        return DocumentDeleteResult(
+            doc_id=doc_id,
+            chunk_count=len(chunk_ids),
+            faiss_deleted=faiss_deleted,
+            parent_store_deleted=parent_store_deleted,
+            manifest_updated=manifest_updated,
+            deleted_anything=deleted_anything,
+        )
 
     def rebuild(self) -> int:
         manifest = self.get_manifest()
         documents = self._load_active_documents_for_rebuild()
-        self._vector_store.rebuild_documents(documents=documents, ids=[str(getattr(document, "id", "")) for document in documents])
+        self._vector_store.rebuild_documents(
+            documents=documents, ids=[str(getattr(document, "id", "")) for document in documents]
+        )
         manifest["schema_version"] = _INDEX_SCHEMA_VERSION
         manifest["chunk_schema_version"] = _CHUNK_SCHEMA_VERSION
         manifest["parent_store_version"] = _PARENT_STORE_VERSION
@@ -312,6 +395,86 @@ class IndexManager:
                 )
         return summaries
 
+    def get_document_summary(self, doc_id: str) -> DocumentSummary | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT doc_id, source_name, source_type, source_uri_or_path, chunk_count
+                FROM index_documents
+                WHERE doc_id = ? AND doc_status = 'active'
+                """,
+                (doc_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return DocumentSummary(
+            doc_id=str(row["doc_id"]),
+            source_name=str(row["source_name"]),
+            source_type=SourceType(str(row["source_type"])),
+            source_uri_or_path=str(row["source_uri_or_path"]),
+            chunk_count=int(row["chunk_count"]),
+            page_or_sections=[],
+        )
+
+    def count_active_documents_by_source_uri_or_path(self, source_uri_or_path: str) -> int:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM index_documents
+                WHERE source_uri_or_path = ? AND doc_status = 'active'
+                """,
+                (source_uri_or_path,),
+            ).fetchone()
+        return int(row["count"]) if row is not None else 0
+
+    def rewrite_document_source_uri(self, *, doc_id: str, source_uri_or_path: str) -> bool:
+        with self._connect() as connection:
+            existing = connection.execute(
+                """
+                SELECT 1
+                FROM index_documents
+                WHERE doc_id = ? AND doc_status = 'active'
+                """,
+                (doc_id,),
+            ).fetchone()
+            if existing is None:
+                return False
+
+            connection.execute(
+                """
+                UPDATE index_documents
+                SET source_uri_or_path = ?, updated_at = ?
+                WHERE doc_id = ? AND doc_status = 'active'
+                """,
+                (source_uri_or_path, self._utcnow(), doc_id),
+            )
+
+            chunk_rows = connection.execute(
+                """
+                SELECT chunk_id, metadata_json
+                FROM index_chunks
+                WHERE doc_id = ? AND chunk_status = 'active'
+                """,
+                (doc_id,),
+            ).fetchall()
+            for row in chunk_rows:
+                metadata = json.loads(str(row["metadata_json"]))
+                metadata["source_uri_or_path"] = source_uri_or_path
+                connection.execute(
+                    """
+                    UPDATE index_chunks
+                    SET metadata_json = ?, updated_at = ?
+                    WHERE chunk_id = ?
+                    """,
+                    (
+                        json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+                        self._utcnow(),
+                        str(row["chunk_id"]),
+                    ),
+                )
+        return True
+
     def get_active_chunk_ids(self, doc_id: str) -> list[str]:
         with self._connect() as connection:
             rows = connection.execute(
@@ -335,7 +498,9 @@ class IndexManager:
                     retrieval_text=str(row["retrieval_text"]),
                     child_content=str(row["child_content"] or ""),
                     metadata=metadata,
-                    source_block_type=str(row["source_block_type"]) if row["source_block_type"] else None,
+                    source_block_type=str(row["source_block_type"])
+                    if row["source_block_type"]
+                    else None,
                     page=str(row["page"]) if row["page"] is not None else None,
                     section_path=self._decode_section_path(row["section_path_json"]),
                 )
@@ -355,7 +520,13 @@ class IndexManager:
         documents: list[Document] = []
         for row in rows:
             metadata = json.loads(str(row["metadata_json"]))
-            documents.append(Document(page_content=str(row["retrieval_text"]), metadata=metadata, id=str(row["chunk_id"])))
+            documents.append(
+                Document(
+                    page_content=str(row["retrieval_text"]),
+                    metadata=metadata,
+                    id=str(row["chunk_id"]),
+                )
+            )
         return documents
 
     def _collect_parent_rows(self, chunks: list[IngestedChunk]) -> list[dict[str, Any]]:
@@ -370,12 +541,17 @@ class IndexManager:
                 "doc_id": chunk.doc_id,
                 "parent_store_ref": str(metadata.get("parent_store_ref") or ""),
                 "parent_content_hash": str(metadata.get("parent_content_hash") or ""),
-                "source_block_ids_json": json.dumps(metadata.get("parent_source_block_ids") or [], ensure_ascii=False),
+                "source_block_ids_json": json.dumps(
+                    metadata.get("parent_source_block_ids") or [], ensure_ascii=False
+                ),
             }
         return list(parents.values())
 
     def _chunks_to_documents(self, chunks: list[IngestedChunk]) -> list[Document]:
-        return [Document(page_content=chunk.content, metadata=chunk.metadata, id=chunk.chunk_id) for chunk in chunks]
+        return [
+            Document(page_content=chunk.content, metadata=chunk.metadata, id=chunk.chunk_id)
+            for chunk in chunks
+        ]
 
     def _build_content_fingerprint(self, chunks: list[IngestedChunk]) -> str:
         normalized_items = []
@@ -415,6 +591,14 @@ class IndexManager:
                 "SELECT * FROM index_documents WHERE doc_id=? AND doc_status='active'",
                 (doc_id,),
             ).fetchone()
+
+    def _document_exists(self, doc_id: str) -> bool:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM index_documents WHERE doc_id=? LIMIT 1",
+                (doc_id,),
+            ).fetchone()
+        return row is not None
 
     def _ensure_schema(self) -> None:
         with self._connect() as connection:
@@ -514,21 +698,36 @@ class IndexManager:
         }
 
     def _write_manifest(self, payload: dict[str, Any]) -> None:
-        self._manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._manifest_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
-    def _record_ingest_run(self, *, doc_id: str, run_type: str, chunk_count: int, status: str) -> None:
+    def _record_ingest_run(
+        self, *, doc_id: str, run_type: str, chunk_count: int, status: str
+    ) -> None:
         now = self._utcnow()
         with self._connect() as connection:
             connection.execute(
                 "INSERT INTO ingest_runs (ingest_id, doc_id, run_type, chunk_count, started_at, completed_at, status, schema_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (str(uuid4()), doc_id, run_type, chunk_count, now, now, status, _INDEX_SCHEMA_VERSION),
+                (
+                    str(uuid4()),
+                    doc_id,
+                    run_type,
+                    chunk_count,
+                    now,
+                    now,
+                    status,
+                    _INDEX_SCHEMA_VERSION,
+                ),
             )
 
     def _embedding_dimension(self) -> int:
         vector = self._embeddings.embed_query("index manifest probe")
         return len(vector)
 
-    def _format_location(self, *, page: str | None, page_or_section: str | None, section_path_json: str | None) -> str | None:
+    def _format_location(
+        self, *, page: str | None, page_or_section: str | None, section_path_json: str | None
+    ) -> str | None:
         section_path = self._decode_section_path(section_path_json)
         page_value = page or page_or_section
         if section_path and page_value:

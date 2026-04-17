@@ -97,17 +97,6 @@ uv run python -m backend.scripts.ask "这份文档的核心结论是什么？"
 uv run pytest
 ```
 
-同步评测依赖：
-
-```powershell
-uv sync --group eval
-```
-
-运行 RAGAS 评测：
-
-```powershell
-uv run python -m backend.scripts.run_ragas_eval --dataset backend/tests/fixtures/eval_dataset.json
-```
 
 整理历史 `data` 存储：
 
@@ -152,11 +141,10 @@ bailing-agent/
 │  │  ├─ models/                     # 预留模型包，当前基本为空壳
 │  │  └─ retrieve/                   # 检索、索引管理、路由、扩展、重排、重试
 │  ├─ tests/                         # 后端测试
-│  ├─ .pytest-tmp/                   # pytest 临时运行目录，不属于正式源码
 │  └─ test_runtime/                  # 运行时测试辅助目录
-├─ data/                             # 文档原件与解析快照存储，不是最终知识库本体
-│  ├─ uploads/                       # 原始文件对象存储，现为 content-addressed objects
-│  └─ processed/                     # 标准化解析快照，如 doc-xxxx.normalized.json
+├─ data/                             # 文档原件与解析快照存储
+│  ├─ uploads/                       # 原始文件对象存储
+│  └─ processed/                     # 标准化解析快照
 ├─ docs/
 │  ├─ README.md                      # 额外中文说明
 │  ├─ README.en.md                   # 额外英文说明
@@ -172,70 +160,15 @@ bailing-agent/
 │  ├─ index/                         # 索引状态 sqlite 与 manifest
 │  └─ eval/                          # 评测输出目录
 ├─ .env.example                      # 环境变量模板
-├─ .gitignore                        # Git 忽略规则
-├─ CHANGELOG.md                      # 双语变更记录
 ├─ pyproject.toml                    # Python/uv/ruff 项目配置
-├─ pytest.ini                        # pytest 配置
-├─ README.en.md                      # 英文主 README
-├─ README.md                         # 中文主 README
-└─ uv.lock                           # uv 锁文件
 ```
 
 ## 关于 `data/` 和知识库
 
-`data/` 不是“用户手工放文件进去就自动建库”的目录。
-
-更准确的理解是：
-
 - `data/uploads/`：系统管理的原始文件对象存储
 - `data/processed/`：解析后的标准化快照
-- `storage/`：真正的 RAG 运行时知识库和聊天状态
+- `storage/`： RAG 运行时知识库和聊天状态
 
-也就是说：
-
-- `data` 偏“文档源文件和中间产物”
-- `storage` 才偏“检索库和聊天库”
-
-## 全局知识库 vs 聊天上传文件
-
-当前项目逻辑上区分两类文档：
-
-- 全局知识库文档
-  - 面向所有对话可见
-  - 逻辑上属于 `global scope`
-
-- 聊天上传文件
-  - 仅对当前会话可见
-  - 逻辑上属于 `session scope`
-  - 必须受 `session_id` 限制
-
-这两类文档现在可以共享底层物理文件对象，但不能共享检索权限边界。也就是：
-
-- 物理层可以去重复用
-- 检索层必须隔离可见范围
-
-## 当前验证状态
-
-- 全量后端测试：`104 passed`
-- `ruff check`：通过
-- DeepSeek 流式问答联调：已通过
-- DeepSeek 驱动的 RAGAS 评测链路：已接通
-
-## GitHub 推送约定
-
-以下内容不应推送到 GitHub：
-
-- `.env`
-- `data/` 下的运行数据
-- `storage/` 下的运行数据
-- `AGENTS.md`
-- `backend/.pytest-tmp/`、`test_runtime/` 等测试临时产物
-
-当前仓库已经按这个方向补了忽略规则；真正要推送前，仍建议再跑一次：
-
-```powershell
-git status --short
-```
 
 ## 参考文档
 

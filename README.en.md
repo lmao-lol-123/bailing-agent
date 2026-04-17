@@ -6,8 +6,6 @@ A backend-first RAG project for engineering documents and standards-style PDFs, 
 
 ## Overview
 
-This repository is not centered on a generic chat UI. The main value is the end-to-end backend pipeline:
-
 - document ingestion and normalization
 - structure-aware chunking
 - hybrid retrieval, routing, reranking, and retry
@@ -97,18 +95,6 @@ Run the full test suite:
 uv run pytest
 ```
 
-Install evaluation dependencies:
-
-```powershell
-uv sync --group eval
-```
-
-Run RAGAS evaluation:
-
-```powershell
-uv run python -m backend.scripts.run_ragas_eval --dataset backend/tests/fixtures/eval_dataset.json
-```
-
 Clean up legacy `data` storage:
 
 ```powershell
@@ -152,11 +138,10 @@ bailing-agent/
 │  │  ├─ models/                     # Reserved package, currently mostly a placeholder
 │  │  └─ retrieve/                   # Retrieval, index management, routing, expansion, reranking, retry
 │  ├─ tests/                         # Backend test suite
-│  ├─ .pytest-tmp/                   # pytest runtime artifacts, not source code
 │  └─ test_runtime/                  # Temporary runtime fixtures for tests
-├─ data/                             # Raw document objects and processed snapshots, not the live KB itself
+├─ data/                             # Raw document objects and processed snapshots
 │  ├─ uploads/                       # Raw content-addressed file objects
-│  └─ processed/                     # Normalized parse snapshots such as doc-xxxx.normalized.json
+│  └─ processed/                     # Normalized parse snapshots
 ├─ docs/
 │  ├─ README.md                      # Extra Chinese documentation
 │  ├─ README.en.md                   # Extra English documentation
@@ -172,70 +157,14 @@ bailing-agent/
 │  ├─ index/                         # Index sqlite state and manifest
 │  └─ eval/                          # Evaluation output directory
 ├─ .env.example                      # Environment template
-├─ .gitignore                        # Git ignore rules
 ├─ CHANGELOG.md                      # Bilingual changelog
-├─ pyproject.toml                    # Python/uv/ruff project config
-├─ pytest.ini                        # pytest config
-├─ README.en.md                      # Main English README
-├─ README.md                         # Main Chinese README
-└─ uv.lock                           # uv lockfile
 ```
 
 ## About `data/` vs the Knowledge Base
 
-`data/` is not a “drop files here and they become the knowledge base” folder.
-
-A more accurate model is:
-
 - `data/uploads/`: system-managed raw file objects
 - `data/processed/`: normalized parse snapshots
 - `storage/`: the actual live retrieval and chat state
-
-So in practice:
-
-- `data` is for source files and intermediate artifacts
-- `storage` is for the active RAG runtime state
-
-## Global Knowledge Base vs Chat Uploads
-
-The project distinguishes two logical document scopes:
-
-- Global knowledge-base documents
-  - visible to all sessions
-  - logically `global scope`
-
-- Chat-uploaded documents
-  - visible only inside the owning session
-  - logically `session scope`
-  - constrained by `session_id`
-
-These two categories may reuse the same underlying raw file object, but they must not share the same retrieval visibility boundary. In other words:
-
-- physical storage can be deduplicated
-- retrieval permissions must stay isolated
-
-## Current Validation Status
-
-- Full backend test suite: `104 passed`
-- `ruff check`: passed
-- DeepSeek streaming answer path: validated
-- DeepSeek-backed RAGAS evaluation flow: enabled
-
-## GitHub Push Notes
-
-The following should not be pushed to GitHub:
-
-- `.env`
-- runtime data under `data/`
-- runtime data under `storage/`
-- `AGENTS.md`
-- temporary test artifacts such as `backend/.pytest-tmp/` and `test_runtime/`
-
-Before pushing, it is still a good idea to verify:
-
-```powershell
-git status --short
-```
 
 ## References
 
